@@ -1,0 +1,158 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    name: mops test (Motoko unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install mops
+        run: npm install --global ic-mops
+
+      - name: Install Mops dependencies
+        run: mops install
+
+      - name: Run unit tests
+        run: mops test
+
+  frontend-build:
+    name: frontend build (npm ci + esbuild bundle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Build @dfinity bundle
+        working-directory: src/frontend
+        run: npm run build
+
+      - name: Verify bundle is non-empty
+        run: |
+          if [ ! -s src/frontend/js/dfinity.js ]; then
+            echo "dfinity.js missing or empty after build" >&2
+            exit 1
+          fi
+          ls -lh src/frontend/js/dfinity.js
+
+  integration:
+    name: integration suite (bash + local replica)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install icp-cli
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/dfinity/icp-cli/releases/download/v0.2.7/icp-cli-installer.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Verify icp-cli
+        run: icp --version
+
+      - name: Install mops
+        run: npm install --global ic-mops
+
+      - name: Install Mops dependencies
+        run: mops install
+
+      - name: Create dev identity
+        run: |
+          icp identity new icvc-dev --storage plaintext --quiet
+          icp identity default icvc-dev
+
+      - name: Start local network
+        run: icp network start -d
+
+      - name: Seed cycles into dev identity
+        run: |
+          echo y | icp token transfer 100 "$(icp identity principal)" \
+            -e local --identity anonymous
+          echo y | icp cycles mint --cycles 50t -e local
+
+      - name: Local deploy
+        run: bash scripts/deploy.sh -e local
+
+      - name: Run integration suite
+        run: bash tests/integration.sh
+
+  pocketic:
+    name: PocketIC suite (deterministic-time + failure paths)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install icp-cli
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/dfinity/icp-cli/releases/download/v0.2.7/icp-cli-installer.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install mops
+        run: npm install --global ic-mops
+
+      - name: Install Mops dependencies
+        run: mops install
+
+      - name: Install dfx 0.30.2 (provides the pocket-ic server binary)
+        run: |
+          DFXVM_INIT_YES=true sh -ci "$(curl -fsSL https://internetcomputer.org/install.sh)"
+          # dfxvm lands on PATH via its env file, not ~/.local/bin.
+          . "$HOME/.local/share/dfx/env"
+          dfxvm install 0.30.2
+          dfxvm default 0.30.2
+          dfx --version
+          dfx cache install   # populates the cache, incl. the pocket-ic binary
+          # expose dfx to later steps
+          echo "$(dirname "$(command -v dfx)")" >> "$GITHUB_PATH"
+
+      - name: Build redemption wasm (PocketIC loads it)
+        run: icp build
+
+      - name: Install PocketIC Python deps
+        working-directory: tests/pocketic
+        run: pip install -r requirements.txt
+
+      - name: Run PocketIC suite
+        run: |
+          export POCKET_IC_BIN="$(dfx cache show)/pocket-ic"
+          if [ ! -x "$POCKET_IC_BIN" ]; then
+            echo "pocket-ic server not found at $POCKET_IC_BIN; cache contents:" >&2
+            ls -la "$(dfx cache show)" >&2 || true
+            exit 1
+          fi
+          pytest tests/pocketic -q

@@ -1,0 +1,19 @@
+// Deployment-specific configuration. This file is the committed template;
+// `scripts/deploy.sh` writes the actual `config.js` (gitignored) by replacing
+// the placeholder tokens with the canister ids and host for the target network.
+export const CONFIG = {
+  REDEMPTION_ID:  "__CANISTER_ID_REDEMPTION__",
+  ICVC_LEDGER_ID: "__CANISTER_ID_ICVC_LEDGER__",
+  ICP_LEDGER_ID:  "__CANISTER_ID_ICP_LEDGER__",
+  II_ID:              "rdmx6-jaaaa-aaaaa-aaadq-cai",
+  HOST:               "__HOST__",
+  II_PROVIDER:        "__II_PROVIDER__",
+  // When set, II derives principals as if the caller's origin were this URL.
+  // Mainnet uses https://nns.ic0.app so holders sign in with the same principal
+  // that holds their ICVC in the NNS dApp. Empty (and so omitted) locally,
+  // where principals are scoped to the local frontend origin by design.
+  // Requires the target origin to list this dapp in its /.well-known/ii-alternative-origins.
+  DERIVATION_ORIGIN:  "__DERIVATION_ORIGIN__",
+  EXCHANGE_RATE:      5753022n,  // e8s fallback shown before getStats loads; live value = getStats().exchange_rate_e8s (fair-value derived)
+};
+export const E8S = 100000000n;

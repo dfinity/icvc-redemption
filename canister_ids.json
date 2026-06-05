@@ -1,0 +1,14 @@
+{
+  "frontend": {
+    "ic": "zdlf2-iaaaa-aaaae-agada-cai"
+  },
+  "icp_ledger": {
+    "ic": "yjeha-kqaaa-aaaae-agaea-cai"
+  },
+  "icvc_ledger": {
+    "ic": "zekdo-fyaaa-aaaae-agadq-cai"
+  },
+  "redemption": {
+    "ic": "yofbu-hiaaa-aaaae-agaeq-cai"
+  }
+}

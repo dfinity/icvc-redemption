@@ -1,0 +1,83 @@
+# yaml-language-server: $schema=https://github.com/dfinity/icp-cli/raw/refs/tags/v0.2.7/docs/schemas/icp-yaml-schema.json
+#
+# Project configuration for icp-cli. This file replaces the legacy `dfx.json`.
+# See `scripts/deploy.sh` for how this is driven end-to-end; see
+# `tests/integration.sh` for the test harness.
+
+canisters:
+  # ICRC-1 + ICRC-2 play-token ledger for ICVC. Identical WASM and hash as
+  # icp_ledger; the two are distinguished only by their canister id and the
+  # init args we install with (different `token_symbol`, `minting_account`).
+  - name: icvc_ledger
+    build:
+      steps:
+        - type: pre-built
+          path: ledger/ic-icrc1-ledger.wasm.gz
+          sha256: a170bfdce5d66e751a3cc03747cb0f06b450af500e75e15976ec08a3f5691f4c
+
+  - name: icp_ledger
+    build:
+      steps:
+        - type: pre-built
+          path: ledger/ic-icrc1-ledger.wasm.gz
+          sha256: a170bfdce5d66e751a3cc03747cb0f06b450af500e75e15976ec08a3f5691f4c
+
+  # Motoko backend. Built via mops + the pinned `moc 1.8.2` from mops.toml's
+  # [toolchain] section, so the build matches the test runner.
+  - name: redemption
+    build:
+      steps:
+        - type: script
+          commands:
+            - $(mops toolchain bin moc) src/redemption/main.mo $(mops sources) -o "$ICP_WASM_OUTPUT_PATH"
+
+  # Asset (frontend) canister. Pre-built WASM pinned to the SDK 0.30.2 release;
+  # the contents of src/frontend/ are uploaded via the `sync.assets` step.
+  - name: frontend
+    build:
+      steps:
+        - type: pre-built
+          path: ledger/assetstorage.wasm.gz
+          sha256: 63d122d0149a29f4e48603efdd7d2bce656a6a83bac1e3207897c68e8e225bb6
+    sync:
+      steps:
+        - type: assets
+          dirs:
+            - src/frontend
+
+  # Internet Identity for the local dev environment only — mainnet uses the
+  # global identity.ic0.app and does not deploy this canister. icp-cli does
+  # not support `specified_id`, so the local II's canister id is whatever the
+  # network assigns it; `scripts/deploy.sh` reads it back and injects it into
+  # the frontend's runtime config.
+  - name: internet_identity
+    build:
+      steps:
+        - type: pre-built
+          path: ledger/internet_identity.wasm.gz
+          sha256: e039c7ab988593b23fa7113fa23cd29e959805e3d49a82fadaf408e528bfc6e2
+
+networks:
+  - name: local
+    mode: managed
+    gateway:
+      bind: 127.0.0.1
+
+environments:
+  - name: local
+    network: local
+    canisters:
+      - internet_identity
+      - icvc_ledger
+      - icp_ledger
+      - redemption
+      - frontend
+
+  # IC mainnet — no `internet_identity` (uses the global one at identity.ic0.app).
+  - name: ic
+    network: ic
+    canisters:
+      - icvc_ledger
+      - icp_ledger
+      - redemption
+      - frontend
