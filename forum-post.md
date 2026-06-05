@@ -87,8 +87,8 @@ ICVC tokens used to redeem treasury value through the canister are burned on rec
 
 ### Transparency and verification
 
-- **Live preview.** A working version is already deployed on the Internet Computer against test ledgers, so holders can try the redemption flow before the vote: https://zdlf2-iaaaa-aaaae-agada-cai.icp0.io (redemption canister `yofbu-hiaaa-aaaae-agaeq-cai`). This preview uses our own copies of the ledger wasm and includes a faucet for test tokens; the production deployment removes the faucet and points at the real ICVC token and the NNS ICP ledger.
-- **Source code.** The redemption canister is open-source; the repository is here: `<REPOSITORY URL TO BE ADDED>`.
+- **Live preview.** A working version is already deployed on the Internet Computer against test ledgers, so holders can try the redemption flow before the vote: [zdlf2-iaaaa-aaaae-agada-cai.icp0.io](https://zdlf2-iaaaa-aaaae-agada-cai.icp0.io) (redemption canister `yofbu-hiaaa-aaaae-agaeq-cai`). This preview uses our own copies of the ledger wasm and includes a faucet for test tokens; the production deployment removes the faucet and points at the real ICVC token and the NNS ICP ledger.
+- **Source code.** The redemption canister is open-source; the repository is at [github.com/dfinity/icvc-redemption](https://github.com/dfinity/icvc-redemption).
 - **On-chain verifiability.** The deployed module hash will be published so anyone can confirm the running canister matches the source, and the fair-value inputs behind the rate are readable on-chain at any time.
 
 ## 7. Scope of this motion
