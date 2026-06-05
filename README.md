@@ -226,3 +226,9 @@ Audited against the [ICP canister-security skill](https://skills.internetcompute
 - **Testing:** `mo:test` for Motoko units; plain bash + `icp canister call` for integration.
 
 See [`CLAUDE.md`](./CLAUDE.md) for the canonical build commands and version notes.
+
+## License and contributions
+
+Licensed under the **Apache License, Version 2.0** (see [`LICENSE`](./LICENSE)). Copyright 2026 DFINITY Stiftung.
+
+**Contribution mode: public, no external code contributions.** Pull requests from outside the DFINITY organization are not accepted and are closed automatically. Bug reports and suggestions are welcome via [issues](https://github.com/dfinity/icvc-redemption/issues). Internal development follows [`CONTRIBUTING.md`](./CONTRIBUTING.md).
