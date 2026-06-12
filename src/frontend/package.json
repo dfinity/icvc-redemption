@@ -17,6 +17,6 @@
     "@dfinity/principal": "^3.4.3"
   },
   "devDependencies": {
-    "esbuild": "^0.27.4"
+    "esbuild": "^0.28.1"
   }
 }
