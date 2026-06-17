@@ -333,6 +333,45 @@ REDEMPTION_INIT_ARGS="(record {
     admin = principal \"$DEPLOYER\";
 })"
 
+# The wasm to install. Local uses whatever `icp build` produced for the host;
+# mainnet MUST use the reproducible Linux x86_64 build (see REPRODUCIBLE_BUILD.md)
+# so the on-chain module_hash matches what third parties can rebuild. Building
+# on this host (e.g. macOS arm64) would bake a platform-specific, NON-
+# reproducible hash, so for -e ic we build hermetically via Dockerfile.build
+# and verify the result against the committed redemption.wasm.sha256.
+REDEMPTION_WASM=".icp/cache/artifacts/redemption"
+if [[ "$ENV" == "ic" ]]; then
+  echo ""
+  echo "--- Building reproducible redemption wasm (Docker, linux/amd64) ---"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "ERROR: docker is required to build the reproducible mainnet wasm." >&2
+    echo "       The deployed module_hash must match the Linux x86_64 build" >&2
+    echo "       that CI / auditors reproduce; see REPRODUCIBLE_BUILD.md." >&2
+    exit 1
+  fi
+  docker build --platform=linux/amd64 -f Dockerfile.build -t icvc-redemption-build . >/dev/null
+  REDEMPTION_WASM="redemption.wasm"
+  docker run --rm --platform=linux/amd64 -v "$PWD:/out" icvc-redemption-build \
+      cp /work/redemption.wasm /out/redemption.wasm
+
+  # Gate: refuse to deploy unless the freshly built wasm matches the committed
+  # canonical hash. A mismatch means source/toolchain drifted without
+  # redemption.wasm.sha256 being refreshed (run verify-wasm.sh --write on Linux).
+  EXPECTED_HASH="$(awk '{print $1}' redemption.wasm.sha256)"
+  if command -v sha256sum >/dev/null 2>&1; then
+    BUILT_HASH="$(sha256sum redemption.wasm | awk '{print $1}')"
+  else
+    BUILT_HASH="$(shasum -a 256 redemption.wasm | awk '{print $1}')"
+  fi
+  echo "  built:    $BUILT_HASH"
+  echo "  expected: $EXPECTED_HASH  (redemption.wasm.sha256)"
+  if [[ "$BUILT_HASH" != "$EXPECTED_HASH" ]]; then
+    echo "ERROR: reproducible-build hash mismatch — refusing to deploy to mainnet." >&2
+    exit 1
+  fi
+  echo "  hash verified — this exact wasm becomes the on-chain module_hash."
+fi
+
 echo ""
 echo "--- Installing Redemption canister (mode: $REDEMPTION_MODE) ---"
 if [[ "$ENV" == "ic" ]]; then
@@ -341,7 +380,7 @@ if [[ "$ENV" == "ic" ]]; then
   # networks (the lookup is local-only). Work around by targeting the
   # principal directly with -n ic and passing --wasm explicitly.
   icp canister install "$REDEMPTION_ID" -n ic --mode "$REDEMPTION_MODE" --yes \
-      --wasm .icp/cache/artifacts/redemption \
+      --wasm "$REDEMPTION_WASM" \
       --args "$REDEMPTION_INIT_ARGS" >/dev/null
 else
   icp canister install redemption -e "$ENV" --mode "$REDEMPTION_MODE" --yes \

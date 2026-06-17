@@ -32,3 +32,7 @@ tests/pocketic/__pycache__/
 tests/pocketic/.pytest_cache/
 tests/pocketic/mock_icp_ledger.wasm
 tests/pocketic/mock_ledger.wasm
+
+# Reproducible-build output (scripts/verify-wasm.sh --out / CI). The hash
+# lives in redemption.wasm.sha256; the wasm itself is a build artifact.
+redemption.wasm

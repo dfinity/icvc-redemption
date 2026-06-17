@@ -1,0 +1,50 @@
+# Reproducible build environment for the redemption canister wasm.
+#
+# Pins every input that affects the output wasm hash:
+#   - the OS base image (Node 20 on Debian bookworm),
+#   - the ic-mops CLI version (resolves `mops sources`),
+#   - moc + base lib, via mops.toml's [toolchain] / [dependencies] (fetched by
+#     `mops install` / first `mops toolchain` use).
+#
+# Build and print the hash:
+#   docker build -f Dockerfile.build -t icvc-redemption-build .
+#   docker run --rm icvc-redemption-build            # prints the wasm SHA-256
+#   docker run --rm -v "$PWD:/out" icvc-redemption-build cp /work/redemption.wasm /out/
+#
+# Anyone can run this against a given git commit and confirm they get the same
+# SHA-256 that scripts/verify-wasm.sh recorded in redemption.wasm.sha256, and
+# that it equals the live on-chain module_hash (see REPRODUCIBLE_BUILD.md).
+#
+# Platform is pinned to linux/amd64: mops ships a per-(os,arch) moc binary and
+# different builds emit different wasm, so the arch must be fixed to match the
+# canonical Linux x86_64 reference (otherwise an Apple-Silicon `docker build`
+# would produce a linux/arm64 wasm with a different hash). On arm64 hosts this
+# runs under emulation (slower, still byte-identical).
+#
+# For a fully hermetic build, also pin the base image by digest instead of tag:
+#   FROM --platform=linux/amd64 node:20.18.1-bookworm-slim@sha256:<digest>
+# (a moving tag can change the libc/coreutils under you; pinning removes it).
+FROM --platform=linux/amd64 node:20.18.1-bookworm-slim
+
+# Pin the mops CLI: `mops sources` ordering/flags feed straight into the moc
+# invocation, so the CLI version is part of the reproducibility contract.
+RUN npm install --global ic-mops@1.2.0
+
+WORKDIR /work
+# Copy dependency manifests first so the toolchain layer caches independently
+# of source edits. `mops toolchain init` is required before `mops toolchain bin`
+# resolves moc; it records activation in ~/.bashrc (DFX_MOC_PATH), which a
+# non-login `sh` RUN does not pick up — so the build step sources it explicitly.
+COPY mops.toml ./
+RUN mops install && mops toolchain init
+
+COPY src/redemption ./src/redemption
+
+# Build exactly as icp.yaml's `redemption` build step does, then hash. Run under
+# bash with ~/.bashrc sourced so `mops toolchain bin moc` is active.
+RUN bash -c 'source ~/.bashrc && \
+    MOC="$(mops toolchain bin moc)" && \
+    "$MOC" src/redemption/main.mo $(mops sources) -o /work/redemption.wasm && \
+    sha256sum /work/redemption.wasm'
+
+CMD ["sha256sum", "/work/redemption.wasm"]
