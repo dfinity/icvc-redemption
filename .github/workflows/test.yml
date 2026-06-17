@@ -11,10 +11,10 @@ jobs:
     name: mops test (Motoko unit tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
@@ -27,14 +27,47 @@ jobs:
       - name: Run unit tests
         run: mops test
 
+  reproducible-build:
+    name: reproducible build (redemption wasm hash)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Install mops
+        run: npm install --global ic-mops
+
+      - name: Install Mops dependencies
+        run: mops install
+
+      # Rebuild the redemption wasm with the pinned toolchain and assert it
+      # reproduces the SHA-256 committed in redemption.wasm.sha256. A mismatch
+      # means the source changed without the hash being refreshed
+      # (run `bash scripts/verify-wasm.sh --write`) or the toolchain drifted.
+      - name: Verify redemption wasm hash
+        run: bash scripts/verify-wasm.sh --out redemption.wasm
+
+      - name: Upload redemption wasm + hash
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: redemption-wasm
+          path: |
+            redemption.wasm
+            redemption.wasm.sha256
+          if-no-files-found: error
+
   frontend-build:
     name: frontend build (npm ci + esbuild bundle)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
@@ -58,10 +91,10 @@ jobs:
     name: integration suite (bash + local replica)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
@@ -104,15 +137,15 @@ jobs:
     name: PocketIC suite (deterministic-time + failure paths)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
 
