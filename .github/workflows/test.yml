@@ -60,6 +60,26 @@ jobs:
             redemption.wasm.sha256
           if-no-files-found: error
 
+  reproducible-build-docker:
+    name: reproducible build via Dockerfile.build (mainnet deploy path)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # Exercises the EXACT artifact path scripts/deploy.sh -e ic uses, so a
+      # broken Dockerfile fails here instead of mid-deploy. The native
+      # `reproducible-build` job already confirms the hash value on Linux; this
+      # job validates the Dockerfile recipe (mops toolchain init, pinned
+      # ic-mops, base image, --platform pin, wasm extraction).
+      - name: Build via Dockerfile.build
+        run: docker build --platform=linux/amd64 -f Dockerfile.build -t icvc-redemption-build .
+
+      - name: Extract wasm (as deploy.sh does) and assert canonical hash
+        run: |
+          docker run --rm --platform=linux/amd64 -v "$PWD:/out" \
+            icvc-redemption-build cp /work/redemption.wasm /out/redemption.wasm
+          echo "$(awk '{print $1}' redemption.wasm.sha256)  redemption.wasm" | sha256sum -c -
+
   frontend-build:
     name: frontend build (npm ci + esbuild bundle)
     runs-on: ubuntu-latest
