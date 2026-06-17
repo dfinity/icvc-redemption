@@ -1,0 +1,41 @@
+# Reproducible build environment for the redemption canister wasm.
+#
+# Pins every input that affects the output wasm hash:
+#   - the OS base image (Node 20 on Debian bookworm),
+#   - the ic-mops CLI version (resolves `mops sources`),
+#   - moc + base lib, via mops.toml's [toolchain] / [dependencies] (fetched by
+#     `mops install` / first `mops toolchain` use).
+#
+# Build and print the hash:
+#   docker build -f Dockerfile.build -t icvc-redemption-build .
+#   docker run --rm icvc-redemption-build            # prints the wasm SHA-256
+#   docker run --rm -v "$PWD:/out" icvc-redemption-build cp /work/redemption.wasm /out/
+#
+# Anyone can run this against a given git commit and confirm they get the same
+# SHA-256 that scripts/verify-wasm.sh recorded in redemption.wasm.sha256, and
+# that it equals the live on-chain module_hash (see REPRODUCIBLE_BUILD.md).
+#
+# For a fully hermetic build, pin the base image by digest instead of tag, e.g.
+#   FROM node:20.18.1-bookworm-slim@sha256:<digest>
+# (a moving tag can change the libc/coreutils under you; moc itself is
+# deterministic, but pinning the digest removes the last variable).
+FROM node:20.18.1-bookworm-slim
+
+# Pin the mops CLI: `mops sources` ordering/flags feed straight into the moc
+# invocation, so the CLI version is part of the reproducibility contract.
+RUN npm install --global ic-mops@1.2.0
+
+WORKDIR /work
+# Copy dependency manifests first so the toolchain layer caches independently
+# of source edits.
+COPY mops.toml ./
+RUN mops install
+
+COPY src/redemption ./src/redemption
+
+# Build exactly as icp.yaml's `redemption` build step does, then hash.
+RUN MOC="$(mops toolchain bin moc)" && \
+    "$MOC" src/redemption/main.mo $(mops sources) -o /work/redemption.wasm && \
+    sha256sum /work/redemption.wasm
+
+CMD ["sha256sum", "/work/redemption.wasm"]
