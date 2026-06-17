@@ -15,11 +15,16 @@
 # SHA-256 that scripts/verify-wasm.sh recorded in redemption.wasm.sha256, and
 # that it equals the live on-chain module_hash (see REPRODUCIBLE_BUILD.md).
 #
-# For a fully hermetic build, pin the base image by digest instead of tag, e.g.
-#   FROM node:20.18.1-bookworm-slim@sha256:<digest>
-# (a moving tag can change the libc/coreutils under you; moc itself is
-# deterministic, but pinning the digest removes the last variable).
-FROM node:20.18.1-bookworm-slim
+# Platform is pinned to linux/amd64: mops ships a per-(os,arch) moc binary and
+# different builds emit different wasm, so the arch must be fixed to match the
+# canonical Linux x86_64 reference (otherwise an Apple-Silicon `docker build`
+# would produce a linux/arm64 wasm with a different hash). On arm64 hosts this
+# runs under emulation (slower, still byte-identical).
+#
+# For a fully hermetic build, also pin the base image by digest instead of tag:
+#   FROM --platform=linux/amd64 node:20.18.1-bookworm-slim@sha256:<digest>
+# (a moving tag can change the libc/coreutils under you; pinning removes it).
+FROM --platform=linux/amd64 node:20.18.1-bookworm-slim
 
 # Pin the mops CLI: `mops sources` ordering/flags feed straight into the moc
 # invocation, so the CLI version is part of the reproducibility contract.

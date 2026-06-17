@@ -29,15 +29,25 @@ The output wasm is a pure function of a small, fully-pinned set of inputs:
 
 | Input | Pinned by |
 |---|---|
+| **Platform (Linux x86_64)** | `Dockerfile.build` base image — see warning below |
 | Motoko compiler (`moc 1.8.2`) | `mops.toml` `[toolchain]` |
 | Base library (`base 0.12.1`) | `mops.toml` `[dependencies]` (exact version) |
 | `ic-mops` CLI (resolves `mops sources`) | `Dockerfile.build` (`ic-mops@1.2.0`) |
 | Source | the git commit |
-| OS / libc (belt-and-braces) | `Dockerfile.build` base image |
 
-`moc` is a deterministic compiler: it embeds no timestamps, build paths, or
-randomness in its output. Two rebuilds of the same source with the same `moc`
-produce byte-identical wasm. The redemption wasm is installed **uncompressed**
+> **⚠️ Platform is part of the contract.** `mops` fetches a *platform-specific*
+> `moc` binary, and the macOS and Linux builds of the same `moc` version emit
+> **different wasm** (different baked-in Motoko runtime), hence a different
+> SHA-256. Reproducibility holds *within* a platform, not across. The committed
+> hash and the deployed canister use **Linux x86_64** as the canonical
+> reference. Verify on Linux x86_64, or — recommended — via `Dockerfile.build`,
+> which pins the platform for you. A macOS host build will print a different
+> hash; that is expected, not a tampering signal.
+
+Given a fixed platform, `moc` is a deterministic compiler: it embeds no
+timestamps, build paths, or randomness in its output, so two rebuilds of the
+same source with the same `moc` produce byte-identical wasm. The redemption
+wasm is installed **uncompressed**
 (`scripts/deploy.sh` passes `--wasm .icp/cache/artifacts/redemption`, a raw
 `.wasm`), so the IC `module_hash` is just the plain SHA-256 of that file — no
 gzip normalization needed.
@@ -47,12 +57,16 @@ and re-asserted on every push/PR by the `reproducible-build` CI job.
 
 ## Verifying locally (host toolchain)
 
-Fastest path if you already have `mops` installed:
+Fastest path if you already have `mops` installed **and are on Linux x86_64**
+(on macOS the hash will differ by design — use the Docker path below):
 
 ```bash
 bash scripts/verify-wasm.sh            # rebuild + compare to redemption.wasm.sha256
 bash scripts/verify-wasm.sh --onchain  # also diff against the mainnet module_hash
 ```
+
+The script prints the platform it ran on; if it is not `Linux x86_64`, a
+mismatch against the committed hash is expected.
 
 `--onchain` reads the live `module_hash` via `dfx canister info` (an anonymous
 `read_state` call — no controller rights needed) and compares it to your
@@ -107,10 +121,12 @@ catch.
 
 ## Residual caveats
 
-- **Cross-machine determinism** rests on `moc` being deterministic (it is) and
-  on the toolchain versions matching. The Docker path pins these; the host
-  path trusts your local `mops.toml`-resolved versions. If a host rebuild
-  disagrees with the Docker rebuild, suspect a `moc` / `ic-mops` version skew.
+- **Determinism is per-platform.** `moc` is deterministic for a fixed platform,
+  but the `moc` binary itself differs across OS/arch (macOS vs Linux produce
+  different wasm from identical source — confirmed: macOS gave
+  `eb1fedc3…`, Linux x86_64 gives `491dc324…`). Always verify on the canonical
+  platform (Linux x86_64 / `Dockerfile.build`). A cross-platform mismatch is
+  expected and is **not** evidence of tampering; a *same-platform* mismatch is.
 - **`Dockerfile.build` pins the base image by tag, not digest.** For a fully
   hermetic build, pin `FROM node:...@sha256:<digest>` (noted inline in the
   Dockerfile). A moving tag changes the surrounding libc/coreutils, not `moc`,

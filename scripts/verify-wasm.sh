@@ -10,6 +10,14 @@ set -euo pipefail
 #   1. the committed expected hash in `redemption.wasm.sha256` (always, if present), and
 #   2. the live on-chain module hash of the mainnet redemption canister (with --onchain).
 #
+# PLATFORM MATTERS. mops fetches a platform-specific `moc` binary, and the
+# macOS and Linux builds of the same moc version emit DIFFERENT wasm (different
+# baked-in Motoko RTS), so a host build only reproduces the committed hash on
+# the SAME platform it was recorded on. The committed hash and the deployed
+# canister use **Linux x86_64** as the canonical reference — verify there, or
+# (recommended, host-independent) via Dockerfile.build. A macOS host build will
+# print a different hash and that is expected, not a tampering signal.
+#
 # The redemption wasm is installed UNCOMPRESSED (see scripts/deploy.sh: it
 # passes `--wasm .icp/cache/artifacts/redemption`, a raw .wasm), so the IC
 # `module_hash` equals the plain SHA-256 of this file — no gunzip step needed.
@@ -57,6 +65,7 @@ if ! command -v mops >/dev/null 2>&1; then
 fi
 
 MOC="$(mops toolchain bin moc)"
+echo "platform:   $(uname -s) $(uname -m)  (canonical reference: Linux x86_64)"
 echo "moc:        $("$MOC" --version)"
 echo "moc binary: $MOC"
 
