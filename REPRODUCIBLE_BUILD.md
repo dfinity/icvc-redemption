@@ -19,20 +19,25 @@ If the rebuilt hash equals the committed hash **and** the on-chain
 
 ## Current mainnet deployment status
 
-> **⚠️ The live canister is not yet aligned to the canonical hash.** The
-> current mainnet redemption canister (`yofbu-hiaaa-aaaae-agaeq-cai`) has
-> on-chain `module_hash` **`eb1fedc3…`**, which was built on macOS arm64
-> *before* this reproducible-build process existed. That hash is **not**
-> reproducible via the Linux path (a Linux/Docker rebuild yields the canonical
-> **`491dc324…`**), so the live canister cannot currently be independently
-> verified by a Linux auditor.
+> **✅ The live canister is aligned to the canonical hash.** The mainnet
+> redemption canister (`yofbu-hiaaa-aaaae-agaeq-cai`) has on-chain
+> `module_hash` **`491dc324…`**, which is exactly the wasm produced by the
+> reproducible Linux x86_64 build (`Dockerfile.build` / the `reproducible-build`
+> CI job). Anyone can rebuild from source and confirm the match:
 >
-> This aligns on the **next mainnet upgrade**: `scripts/deploy.sh -e ic` now
-> builds the wasm hermetically via `Dockerfile.build` (linux/amd64) and
-> installs that exact artifact, so after the next upgrade the on-chain
-> `module_hash` becomes `491dc324…` and matches what anyone can rebuild.
-> Until then, treat the `eb1fedc3…` ≠ `491dc324…` gap as a known,
-> documented state — not a tampering signal.
+> ```
+> docker build --platform=linux/amd64 -f Dockerfile.build -t b .
+> docker run --rm --platform=linux/amd64 -v "$PWD:/out" b cp /work/redemption.wasm /out/redemption.wasm
+> sha256sum redemption.wasm                                   # 491dc324…
+> dfx canister info yofbu-hiaaa-aaaae-agaeq-cai --network ic  # Module hash: 0x491dc324…
+> ```
+>
+> History: the canister was originally deployed from a macOS arm64 build
+> (`eb1fedc3…`), which is not reproducible via the Linux path. It was upgraded
+> in place (EOP, state-preserving) to the Linux x86_64 build to make it
+> independently verifiable. Future mainnet upgrades stay reproducible because
+> `scripts/deploy.sh -e ic` builds the wasm via `Dockerfile.build` and
+> hash-gates it against `redemption.wasm.sha256` before install.
 
 > Scope: this covers the **redemption** canister, the only one whose source
 > lives in this repo. The ledger, asset, and Internet Identity canisters ship
