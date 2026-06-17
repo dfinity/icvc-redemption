@@ -101,6 +101,7 @@ bash tests/integration.sh --case redeem            # filter by substring
 
 - A trap inside the canister's *own* redeem code (not a downstream ledger trap) — would need a test-only trap hook in the canister.
 - Subnet queue pressure / stress; frontend UI tests (no browser harness).
+- **Concurrent interleaving** (e.g. a `redeem` appending to `pendingBurns` during a `sweepBurn`/`forceBurn` await — the TOCTOU class). The PocketIC Python harness only has blocking `update_call` (no `submit_call`/`await_call`), so two ingress messages can't be in flight at once. `sweepBurn`/`forceBurn` are written to be safe regardless (they reconcile against the *current* `pendingBurns` by removing burned ids, never overwriting with a stale snapshot), but that safety is not regression-tested.
 
 **Adding a new integration case.** Write a `case_<name>() { ... }` function that returns 0 on success and uses `expect_contains` for substring assertions. Wire it into the runner block at the bottom of `tests/integration.sh`. Quirks to remember:
 

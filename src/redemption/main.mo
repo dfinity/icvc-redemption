@@ -759,17 +759,29 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     public shared ({ caller }) func sweepBurn() : async Result.Result<Nat, Text> {
         if (not isAdmin(caller)) return #err("Not authorized");
         var burnedThisCall : Nat = 0;
-        let stillPending = Buffer.Buffer<(Nat, Nat, Nat64)>(0);
+        // Track the ids we actually burn. We MUST NOT rebuild pendingBurns from
+        // this loop's snapshot: each `await burnIcvc` yields, and a concurrent
+        // `redeem` (different caller — the redeem lock is per-caller and this
+        // method holds no lock) can append a freshly-failed burn to pendingBurns
+        // during the yield. Overwriting with a snapshot-derived array would
+        // silently drop those entries (breaking the burn invariant). Instead,
+        // reconcile against the CURRENT pendingBurns afterwards, removing only
+        // the ids we burned and preserving any concurrent appends.
+        let burnedIds = Buffer.Buffer<Nat>(0);
         for ((id, amount, createdAt) in pendingBurns.vals()) {
             switch (await burnIcvc(amount, id, createdAt)) {
                 case (#ok(_)) {
                     totalIcvcBurned += amount;
                     burnedThisCall += amount;
+                    burnedIds.add(id);
                 };
-                case (#err(_)) { stillPending.add((id, amount, createdAt)); };
+                case (#err(_)) {};
             };
         };
-        pendingBurns := Buffer.toArray(stillPending);
+        pendingBurns := Array.filter<(Nat, Nat, Nat64)>(
+            pendingBurns,
+            func(e : (Nat, Nat, Nat64)) : Bool { not Buffer.contains<Nat>(burnedIds, e.0, Nat.equal) },
+        );
         #ok(burnedThisCall);
     };
 
@@ -786,17 +798,25 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     public shared ({ caller }) func forceBurn() : async Result.Result<Nat, Text> {
         if (not isAdmin(caller)) return #err("Not authorized");
         var burnedThisCall : Nat = 0;
-        let stillPending = Buffer.Buffer<(Nat, Nat, Nat64)>(0);
-        for ((id, amount, createdAt) in pendingBurns.vals()) {
+        // Same concurrency-safe reconciliation as sweepBurn: track burned ids and
+        // filter the CURRENT pendingBurns at the end, rather than overwriting it
+        // with a stale snapshot (which would drop burns appended by a concurrent
+        // redeem during the awaits).
+        let burnedIds = Buffer.Buffer<Nat>(0);
+        for ((id, amount, _) in pendingBurns.vals()) {
             switch (await burnIcvc(amount, id, Pure.nowNat64())) { // fresh — bypasses TooOld
                 case (#ok(_)) {
                     totalIcvcBurned += amount;
                     burnedThisCall += amount;
+                    burnedIds.add(id);
                 };
-                case (#err(_)) { stillPending.add((id, amount, createdAt)); };
+                case (#err(_)) {};
             };
         };
-        pendingBurns := Buffer.toArray(stillPending);
+        pendingBurns := Array.filter<(Nat, Nat, Nat64)>(
+            pendingBurns,
+            func(e : (Nat, Nat, Nat64)) : Bool { not Buffer.contains<Nat>(burnedIds, e.0, Nat.equal) },
+        );
         #ok(burnedThisCall);
     };
 
