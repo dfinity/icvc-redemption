@@ -114,7 +114,14 @@ else
   DO_II=0                 # mainnet uses the global identity.ic0.app
   DO_LEDGERS=0            # NEVER touch mainnet ledger state
   REDEMPTION_MODE=upgrade # preserves state
-  FRONTEND_MODE=upgrade   # asset canister upgrade = resync
+  # Asset-canister upgrade = re-sync. Overridable: the FIRST deploy that
+  # switches the frontend from the old SDK assetstorage wasm to the
+  # @dfinity/asset-canister recipe wasm should use reinstall, because an
+  # in-place upgrade across the two wasm lineages may trap in post_upgrade.
+  # Reinstall is safe here (assets are re-uploaded by the sync step; canister
+  # id, controllers, and cycles are preserved). After the switch, upgrade is
+  # fine.  Run the one-time switch with: FRONTEND_MODE=reinstall ... -e ic
+  FRONTEND_MODE="${FRONTEND_MODE:-upgrade}"
   if [[ "$REINSTALL_REDEMPTION" == "1" ]]; then
     REDEMPTION_MODE=reinstall
   fi
@@ -436,10 +443,13 @@ sed \
   src/frontend/js/config.js.template > src/frontend/js/config.js
 
 echo "--- Deploying frontend (asset-canister recipe builds + syncs; mode: $FRONTEND_MODE) ---"
-# NOTE: on -e ic this upgrades the frontend canister from the old SDK 0.30.2
-# assetstorage wasm to the recipe's asset-canister wasm (a module-hash change);
-# if an in-place upgrade across the wasm lineage is rejected, re-run with
-# FRONTEND_MODE=reinstall (assets are re-uploaded by the sync step either way).
+# NOTE: on -e ic the FIRST deploy switches the frontend canister from the old
+# SDK 0.30.2 assetstorage wasm to the recipe's asset-canister wasm (a module-
+# hash change). Run that one-time switch with FRONTEND_MODE=reinstall (the
+# cross-lineage in-place upgrade may trap; reinstall is safe — id/controllers/
+# cycles preserved, assets re-uploaded by sync). Watch the output: it must say
+# "All canisters already exist" (reusing the existing canister), NOT
+# "Created canister frontend ..." (which would orphan the live canister).
 icp deploy frontend -e "$ENV" -m "$FRONTEND_MODE" --yes >/dev/null
 
 # ---- Done ------------------------------------------------------------------
