@@ -26,7 +26,7 @@ Swap flow (one-line): approve → `redeem` pulls ICVC via `icrc2_transfer_from` 
 Build/deploy commands and one-shot recipes live in [`CONTRIBUTING.md`](./CONTRIBUTING.md). The relevant entry points:
 
 - `bash scripts/deploy.sh -e local` — local network + all canisters
-- `bash scripts/deploy.sh -e ic` — mainnet upgrade (uses dfx as a fallback for the frontend asset upload; see script header)
+- `bash scripts/deploy.sh -e ic` — mainnet upgrade (builds the redemption WASM reproducibly via `Dockerfile.build` + hash-gate; frontend syncs via the `@dfinity/asset-canister` recipe — needs Docker, no dfx)
 - `icp build` — compile Motoko + materialise pre-built WASMs from `icp.yaml`
 - `mops test` — unit tests; `bash tests/integration.sh` — integration suite
 
@@ -34,7 +34,7 @@ For stable-schema changes (adding/removing a stable variable) follow [`MIGRATION
 
 ## Tech Stack
 
-See [`README.md`](./README.md#tech-stack) for the full stack (icp-cli, Motoko/mops with `moc 1.8.2` pinned, pinned ledger + asset-canister WASMs, static SPA with esbuild-bundled `@dfinity/*`, II auth). Build/deploy commands live in [`CONTRIBUTING.md`](./CONTRIBUTING.md). The agent-relevant gotchas (e.g. the `persistent actor class` requirement and icp-cli's stricter Candid literal parsing) are in "Important Details" below.
+See [`README.md`](./README.md#tech-stack) for the full stack (icp-cli ≥ 1.0.0, Motoko/mops with `moc 1.8.2` pinned, pinned ledger WASM, frontend via the `@dfinity/asset-canister` recipe with esbuild-bundled `@dfinity/*`, II auth). Build/deploy commands live in [`CONTRIBUTING.md`](./CONTRIBUTING.md). The agent-relevant gotchas (e.g. the `persistent actor class` requirement and icp-cli's stricter Candid literal parsing) are in "Important Details" below.
 
 ## Important Details
 
