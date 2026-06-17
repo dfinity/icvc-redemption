@@ -1,0 +1,10 @@
+# Dockerfile.build only needs mops.toml + src/redemption; keep the build
+# context small so `docker build` doesn't ship the cache / git history / deps.
+.git
+.icp
+node_modules
+src/frontend
+tests
+redemption.wasm
+*.wasm
+*.wasm.gz

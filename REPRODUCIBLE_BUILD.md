@@ -17,6 +17,23 @@ this commit's source ──(deterministic build)──▶ wasm ──(sha256)─
 If the rebuilt hash equals the committed hash **and** the on-chain
 `module_hash`, then the live canister provably runs this source.
 
+## Current mainnet deployment status
+
+> **⚠️ The live canister is not yet aligned to the canonical hash.** The
+> current mainnet redemption canister (`yofbu-hiaaa-aaaae-agaeq-cai`) has
+> on-chain `module_hash` **`eb1fedc3…`**, which was built on macOS arm64
+> *before* this reproducible-build process existed. That hash is **not**
+> reproducible via the Linux path (a Linux/Docker rebuild yields the canonical
+> **`491dc324…`**), so the live canister cannot currently be independently
+> verified by a Linux auditor.
+>
+> This aligns on the **next mainnet upgrade**: `scripts/deploy.sh -e ic` now
+> builds the wasm hermetically via `Dockerfile.build` (linux/amd64) and
+> installs that exact artifact, so after the next upgrade the on-chain
+> `module_hash` becomes `491dc324…` and matches what anyone can rebuild.
+> Until then, treat the `eb1fedc3…` ≠ `491dc324…` gap as a known,
+> documented state — not a tampering signal.
+
 > Scope: this covers the **redemption** canister, the only one whose source
 > lives in this repo. The ledger, asset, and Internet Identity canisters ship
 > as pre-built WASMs whose SHA-256s are pinned directly in
