@@ -36,3 +36,6 @@ tests/pocketic/mock_ledger.wasm
 # Reproducible-build output (scripts/verify-wasm.sh --out / CI). The hash
 # lives in redemption.wasm.sha256; the wasm itself is a build artifact.
 redemption.wasm
+
+# Recipe build output (assembled clean dir uploaded by the asset-canister plugin)
+src/frontend/dist/

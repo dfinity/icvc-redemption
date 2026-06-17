@@ -62,7 +62,7 @@ The SPA does not (yet) expose any recovery actions — refund retries and all ad
 
 ## Quick start
 
-This project uses [`icp-cli`](https://github.com/dfinity/icp-cli) (v0.2.7+) — install via `brew install icp-cli` on macOS.
+This project uses [`icp-cli`](https://github.com/dfinity/icp-cli) (v1.0.0+) — install via `brew install icp-cli` on macOS.
 
 ```bash
 # Clean local deploy (network + 5 canisters)
@@ -218,10 +218,10 @@ Audited against the [ICP canister-security skill](https://skills.internetcompute
 
 ## Tech stack
 
-- **CLI:** [`icp-cli`](https://github.com/dfinity/icp-cli) v0.2.7+. `dfx` is no longer required.
+- **CLI:** [`icp-cli`](https://github.com/dfinity/icp-cli) v1.0.0+. `dfx` is no longer required for deploys (the PocketIC test harness still uses it to provide the `pocket-ic` binary).
 - **Backend:** Motoko, `persistent actor class`. `mops` for the base library; `moc 1.8.2` pinned in `mops.toml`'s `[toolchain]` (used by both the test runner and the build step in `icp.yaml`).
-- **Token ledgers:** Official `ic-icrc1-ledger.wasm.gz` pinned to IC commit `d4ee25b0865e89d3eaac13a60f0016d5e3296b31`. The asset-canister WASM is pinned to SDK release `0.30.2`. Both are committed under `ledger/` and consumed via `type: pre-built` in `icp.yaml`.
-- **Frontend:** Static SPA, no React/Vite/TypeScript. `index.html` (markup) + `style.css` (styles) + ES-module `js/app.js` + `js/idl.js` + generated `js/config.js`. The `@dfinity/*` packages are pre-bundled to `js/dfinity.js` by esbuild and loaded dynamically.
+- **Token ledgers:** Official `ic-icrc1-ledger.wasm.gz` pinned to IC commit `d4ee25b0865e89d3eaac13a60f0016d5e3296b31`, committed under `ledger/` and consumed via `type: pre-built` in `icp.yaml`.
+- **Frontend:** Static SPA, no React/Vite/TypeScript. `index.html` (markup) + `style.css` (styles) + ES-module `js/app.js` + `js/idl.js` + generated `js/config.js`. The `@dfinity/*` packages are pre-bundled to `js/dfinity.js` by esbuild and loaded dynamically. The asset canister itself is the `@dfinity/asset-canister` recipe (icp-cli 1.0.0): `icp deploy` runs the recipe build (esbuild + assemble a clean `dist/`) and its bundled plugin uploads the assets on both `local` and `ic` — no pinned asset WASM, no dfx.
 - **Auth:** Internet Identity via `@dfinity/auth-client`.
 - **Testing:** `mo:test` for Motoko units; plain bash + `icp canister call` for integration.
 

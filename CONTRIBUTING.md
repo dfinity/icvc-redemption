@@ -5,8 +5,9 @@ How to set up a local development environment and contribute changes.
 ## Prerequisites
 
 - macOS or Linux. (Windows untested.)
-- [`icp-cli`](https://github.com/dfinity/icp-cli) ≥ 0.2.7. On macOS: `brew install icp-cli`. The legacy `dfx` is no longer required for routine workflows; the deploy script does keep one `dfx` fallback for the mainnet frontend-asset upload step, so you'll need `dfx` installed if you plan to deploy to `-e ic` from your machine.
-- Node.js (only needed to install `mops` via `npm`).
+- [`icp-cli`](https://github.com/dfinity/icp-cli) ≥ 1.0.0. On macOS: `brew install icp-cli`. The legacy `dfx` is no longer required for deploys — the `@dfinity/asset-canister` recipe syncs the frontend on both `local` and `ic`. (`dfx` is still used by the PocketIC test suite for its bundled `pocket-ic` binary.)
+- [Docker](https://docs.docker.com/get-docker/) — only for `-e ic` deploys, which build the redemption WASM reproducibly via `Dockerfile.build` (see [`REPRODUCIBLE_BUILD.md`](./REPRODUCIBLE_BUILD.md)). Not needed for local work.
+- Node.js (for `mops` via `npm`, and the frontend recipe build's `npm ci`/esbuild).
 - `mops` for the Motoko package manager: `npm install -g ic-mops`.
 - Python 3 for the small helper scripts.
 

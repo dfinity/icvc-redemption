@@ -43,11 +43,13 @@ set -euo pipefail
 #       json.dump(out, open('.icp/cache/mappings/ic.ids.json', 'w'), indent=2)
 #       PY
 #
-#   - `dfx` is required as a fallback for the frontend asset upload on -e ic.
-#     icp-cli 0.2.7 cannot sync assets to an existing asset canister on a
-#     connected network; the script writes a minimal dfx.json and runs
-#     `dfx deploy frontend --network ic` for that step only. Override the
-#     dfx identity name via DFX_IDENTITY=<name>; defaults to `icvc`.
+#   - Docker is required on -e ic: the redemption WASM is built reproducibly
+#     via Dockerfile.build (linux/amd64) and hash-gated against
+#     redemption.wasm.sha256 before install, so the on-chain module_hash
+#     matches what auditors can rebuild (see REPRODUCIBLE_BUILD.md).
+#   - The frontend is the @dfinity/asset-canister recipe (icp-cli 1.0.0): its
+#     bundled plugin syncs assets to the existing mainnet asset canister, so no
+#     dfx fallback is needed anymore.
 #
 # See MIGRATIONS.md for the playbook on stable-schema changes.
 
@@ -112,7 +114,14 @@ else
   DO_II=0                 # mainnet uses the global identity.ic0.app
   DO_LEDGERS=0            # NEVER touch mainnet ledger state
   REDEMPTION_MODE=upgrade # preserves state
-  FRONTEND_MODE=upgrade   # asset canister upgrade = resync
+  # Asset-canister upgrade = re-sync. Overridable: the FIRST deploy that
+  # switches the frontend from the old SDK assetstorage wasm to the
+  # @dfinity/asset-canister recipe wasm should use reinstall, because an
+  # in-place upgrade across the two wasm lineages may trap in post_upgrade.
+  # Reinstall is safe here (assets are re-uploaded by the sync step; canister
+  # id, controllers, and cycles are preserved). After the switch, upgrade is
+  # fine.  Run the one-time switch with: FRONTEND_MODE=reinstall ... -e ic
+  FRONTEND_MODE="${FRONTEND_MODE:-upgrade}"
   if [[ "$REINSTALL_REDEMPTION" == "1" ]]; then
     REDEMPTION_MODE=reinstall
   fi
@@ -148,9 +157,10 @@ with open('.icp/cache/mappings/${ENV}.ids.json') as f:
 # Invoke a canister call non-interactively. `icp canister call` has no --yes
 # flag and prompts for confirmation on update calls; we pipe `y`.
 #
-# For -e ic, icp-cli 0.2.7 cannot resolve canister names against
-# .icp/cache/mappings/ic.ids.json for connected networks (the lookup is
-# local-only). Translate the name to a principal and use -n ic in that case.
+# For -e ic we translate the canister name to a principal and use -n ic:
+# name->id resolution against .icp/cache/mappings/ic.ids.json has historically
+# been unreliable for connected networks, and targeting the principal directly
+# is version-independent and always works.
 icp_call() {
   local name="$1"
   shift
@@ -199,11 +209,22 @@ if [[ "$ENV" == "local" ]]; then
   fi
 fi
 
-# ---- Step 2: build all canister WASMs --------------------------------------
-
+# ---- Step 2: build canister WASMs (NOT the frontend) -----------------------
+#
+# The frontend is the @dfinity/asset-canister recipe; its build (npm + esbuild
+# + dist assembly) requires js/config.js, which isn't generated until Step 9.
+# So the frontend is built later, during `icp deploy frontend`. Here we build
+# only the canisters that are installed by name from the build output:
+#   - local: Internet Identity + both ledgers + redemption
+#   - ic:    none — redemption installs the reproducible Docker wasm (Step 7),
+#            the ledgers are untouched, and the frontend builds during deploy.
 echo ""
-echo "--- Building canisters ---"
-icp build
+if [[ "$ENV" == "local" ]]; then
+  echo "--- Building canisters (local: all except frontend) ---"
+  icp build internet_identity icvc_ledger icp_ledger redemption
+else
+  echo "--- Skipping icp build (ic: redemption via Docker; frontend via deploy) ---"
+fi
 
 # ---- Step 3: create empty canisters (local only; mainnet canisters exist) -
 
@@ -375,10 +396,10 @@ fi
 echo ""
 echo "--- Installing Redemption canister (mode: $REDEMPTION_MODE) ---"
 if [[ "$ENV" == "ic" ]]; then
-  # icp-cli 0.2.7 quirk: `icp canister install <name> -e ic` cannot resolve
-  # canister names against .icp/cache/mappings/ic.ids.json for connected
-  # networks (the lookup is local-only). Work around by targeting the
-  # principal directly with -n ic and passing --wasm explicitly.
+  # Target the principal directly with -n ic and pass --wasm explicitly: this
+  # is version-independent and avoids relying on name->id resolution against
+  # .icp/cache/mappings/ic.ids.json for connected networks (this is also the
+  # exact path verified by the alignment upgrade — see REPRODUCIBLE_BUILD.md).
   icp canister install "$REDEMPTION_ID" -n ic --mode "$REDEMPTION_MODE" --yes \
       --wasm "$REDEMPTION_WASM" \
       --args "$REDEMPTION_INIT_ARGS" >/dev/null
@@ -396,30 +417,22 @@ echo ""
 echo "--- Verifying ICVC balance of redemption canister (faucet supply) ---"
 icp_call icvc_ledger icrc1_balance_of "(record { owner = principal \"$REDEMPTION_ID\"; subaccount = null })" --query
 
-# ---- Step 9a: build the @dfinity/* esbuild bundle -------------------------
+# ---- Step 9: generate frontend config, then deploy via the asset recipe ----
 #
-# js/dfinity.js is gitignored (it's a build artifact) and js/app.js imports
-# it as a module. A fresh checkout would otherwise deploy a frontend missing
-# the bundle. Build it here unconditionally; npm + esbuild are cheap.
-
-echo ""
-echo "--- Building frontend @dfinity/* bundle (esbuild) ---"
-if ! command -v npm >/dev/null 2>&1; then
-  echo "ERROR: npm is required to build the frontend bundle (esbuild). Install Node.js >= 20." >&2
-  exit 1
-fi
-(cd src/frontend && \
-  if [[ ! -d node_modules ]]; then npm ci --silent --no-audit --no-fund >/dev/null; fi && \
-  npm run --silent build)
-if [[ ! -s src/frontend/js/dfinity.js ]]; then
-  echo "ERROR: src/frontend/js/dfinity.js missing or empty after build." >&2
-  exit 1
-fi
-
-# ---- Step 9b: generate frontend runtime config ----------------------------
+# Under icp-cli 1.0.0 the frontend is the @dfinity/asset-canister recipe (see
+# icp.yaml): `icp deploy` runs the recipe build (npm ci + esbuild bundle +
+# assemble a clean dist/) and the recipe's plugin uploads the assets — on BOTH
+# local and ic, including re-syncing an already-deployed canister, so the old
+# dfx fallback is gone. We only need to write js/config.js first, because 1.0.0
+# does not inject canister ids at build time (they are a runtime ic_env cookie);
+# the recipe build copies this generated config.js into dist/.
 
 echo ""
 echo "--- Generating src/frontend/js/config.js from template ---"
+if ! command -v npm >/dev/null 2>&1; then
+  echo "ERROR: npm is required for the frontend recipe build (esbuild). Install Node.js >= 20." >&2
+  exit 1
+fi
 sed \
   -e "s|__CANISTER_ID_REDEMPTION__|$REDEMPTION_ID|g" \
   -e "s|__CANISTER_ID_ICVC_LEDGER__|$ICVC_LEDGER_ID|g" \
@@ -429,41 +442,15 @@ sed \
   -e "s|__DERIVATION_ORIGIN__|$DERIVATION_ORIGIN|g" \
   src/frontend/js/config.js.template > src/frontend/js/config.js
 
-echo "--- Installing frontend (mode: $FRONTEND_MODE, then sync assets) ---"
-if [[ "$ENV" == "ic" ]]; then
-  # icp-cli 0.2.7 quirk: `icp deploy frontend -e ic` cannot sync assets to
-  # an existing asset canister on a connected network. Fall back to dfx
-  # for the asset upload only. We write a *minimal* dfx.json with just the
-  # frontend canister so dfx doesn't also try to redeploy the ledgers or
-  # the redemption canister (which would need install args dfx can't see).
-  # The asset canister IDs come from the committed `canister_ids.json`.
-  if ! command -v dfx >/dev/null 2>&1; then
-    echo "ERROR: dfx is required to upload frontend assets to an existing" >&2
-    echo "       mainnet asset canister. icp-cli 0.2.7 does not support this" >&2
-    echo "       path; we use dfx as a thin fallback until upstream catches up." >&2
-    echo "       Install dfx via:" >&2
-    echo "         sh -ci \"\$(curl -fsSL https://internetcomputer.org/install.sh)\"" >&2
-    exit 1
-  fi
-  cat > dfx.json <<'EOF'
-{
-  "canisters": {
-    "frontend": {
-      "type": "assets",
-      "source": ["src/frontend"]
-    }
-  },
-  "networks": { "ic": { "type": "persistent" } }
-}
-EOF
-  trap 'rm -f dfx.json' EXIT
-  DFX_IDENTITY="${DFX_IDENTITY:-icvc}"
-  dfx --identity "$DFX_IDENTITY" deploy frontend --network ic --mode upgrade >/dev/null
-  rm -f dfx.json
-  trap - EXIT
-else
-  icp deploy frontend -e "$ENV" --yes -m "$FRONTEND_MODE" >/dev/null
-fi
+echo "--- Deploying frontend (asset-canister recipe builds + syncs; mode: $FRONTEND_MODE) ---"
+# NOTE: on -e ic the FIRST deploy switches the frontend canister from the old
+# SDK 0.30.2 assetstorage wasm to the recipe's asset-canister wasm (a module-
+# hash change). Run that one-time switch with FRONTEND_MODE=reinstall (the
+# cross-lineage in-place upgrade may trap; reinstall is safe — id/controllers/
+# cycles preserved, assets re-uploaded by sync). Watch the output: it must say
+# "All canisters already exist" (reusing the existing canister), NOT
+# "Created canister frontend ..." (which would orphan the live canister).
+icp deploy frontend -e "$ENV" -m "$FRONTEND_MODE" --yes >/dev/null
 
 # ---- Done ------------------------------------------------------------------
 
