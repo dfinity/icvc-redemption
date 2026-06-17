@@ -440,7 +440,7 @@ echo "--- Deploying frontend (asset-canister recipe builds + syncs; mode: $FRONT
 # assetstorage wasm to the recipe's asset-canister wasm (a module-hash change);
 # if an in-place upgrade across the wasm lineage is rejected, re-run with
 # FRONTEND_MODE=reinstall (assets are re-uploaded by the sync step either way).
-yes | icp deploy frontend -e "$ENV" -m "$FRONTEND_MODE" >/dev/null
+icp deploy frontend -e "$ENV" -m "$FRONTEND_MODE" --yes >/dev/null
 
 # ---- Done ------------------------------------------------------------------
 
