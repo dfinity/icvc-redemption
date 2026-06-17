@@ -32,15 +32,19 @@ RUN npm install --global ic-mops@1.2.0
 
 WORKDIR /work
 # Copy dependency manifests first so the toolchain layer caches independently
-# of source edits.
+# of source edits. `mops toolchain init` is required before `mops toolchain bin`
+# resolves moc; it records activation in ~/.bashrc (DFX_MOC_PATH), which a
+# non-login `sh` RUN does not pick up — so the build step sources it explicitly.
 COPY mops.toml ./
-RUN mops install
+RUN mops install && mops toolchain init
 
 COPY src/redemption ./src/redemption
 
-# Build exactly as icp.yaml's `redemption` build step does, then hash.
-RUN MOC="$(mops toolchain bin moc)" && \
+# Build exactly as icp.yaml's `redemption` build step does, then hash. Run under
+# bash with ~/.bashrc sourced so `mops toolchain bin moc` is active.
+RUN bash -c 'source ~/.bashrc && \
+    MOC="$(mops toolchain bin moc)" && \
     "$MOC" src/redemption/main.mo $(mops sources) -o /work/redemption.wasm && \
-    sha256sum /work/redemption.wasm
+    sha256sum /work/redemption.wasm'
 
 CMD ["sha256sum", "/work/redemption.wasm"]
