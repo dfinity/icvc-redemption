@@ -3,7 +3,7 @@
 PocketIC is a deterministic IC runtime that lets tests advance time
 programmatically, install canisters in-process, and inspect state without
 a live replica. We use it for the test gaps the bash integration suite
-cannot deterministically cover (cooldown rounding, pool drain, refund
+cannot deterministically cover (pool drain, refund
 recovery).
 
 The PocketIC server binary path defaults to the one bundled with dfx 0.30.2;
@@ -199,7 +199,7 @@ def small_pool_deployment(pic, redemption_wasm, icrc1_wasm) -> Deployment:
 # ICP cost of redeeming 100 ICVC at the fair-value derived rate, including the
 # 10_000 e8s ICP ledger fee paid on the outbound transfer. Lets boundary tests
 # size the pool to exactly one redeem.
-ONE_REDEEM_ICP_COST_E8S = 100 * 5_753_022 + 10_000
+ONE_REDEEM_ICP_COST_E8S = 100 * 5_758_856 + 10_000
 
 
 @pytest.fixture

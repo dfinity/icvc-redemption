@@ -23,7 +23,7 @@ from conftest import ALICE, DEPLOYER, ICP_MINTING_SUBACCOUNT
 
 
 HASH_OK = 24860
-EXCHANGE_RATE_E8S = 5_753_022  # fair-value derived rate (see #27)
+EXCHANGE_RATE_E8S = 5_758_856  # fair-value derived rate (see #27)
 ICP_FEE_E8S = 10_000
 
 

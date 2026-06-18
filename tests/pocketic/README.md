@@ -6,7 +6,7 @@ PocketIC is a Rust-based deterministic IC runtime that lets us:
 
 - install canisters in-process (no replica network);
 - advance time programmatically (`pic.advance_time(N)`);
-- test the gaps the bash integration suite cannot reach (lock TTL release, cooldown rounding, forced traps, pool drain).
+- test the gaps the bash integration suite cannot reach (lock TTL release, forced traps, pool drain).
 
 ## Prerequisites
 
@@ -36,13 +36,10 @@ pytest tests/pocketic -v
 | File | Covers |
 |---|---|
 | `test_install.py` | Smoke: redemption canister installs cleanly and `listAdmins` returns the init admin. Bogus ledger principals; doesn't exercise the swap flow. |
-| `test_faucet_cooldown.py` | **Deterministic time control.** Two faucet calls within the cooldown window: second rejected. `advance_time(11s)`, third call succeeds. Closes the wall-clock-time gap on the cooldown logic. |
-| `test_cooldown_boundary.py` | **Cooldown boundary precision.** At exactly `elapsed == cooldown`, the second faucet must succeed (the canister's comparison is `<`, not `<=`). PocketIC also advances time inside each `update_call`, so the symmetric "1ns under cooldown" case isn't deterministic and is documented as out-of-scope. |
-| `test_insufficient_icp_pool.py` | **Pool-balance pre-flight check.** Install with a tiny ICP pool (0.1 ICP), Alice gets ICVC via faucet, approves, redeems an amount that requires ~623 ICP. The canister must return `#InsufficientIcpPool` without touching ledger state. |
+| `test_insufficient_icp_pool.py` | **Pool-balance pre-flight check.** Install with a tiny ICP pool (0.1 ICP); Alice (pre-funded with ICVC at genesis) approves and redeems an amount that requires ~623 ICP. The canister must return `#InsufficientIcpPool` without touching ledger state. |
 | `test_pool_drain_boundary.py` | **Pool boundary precision.** Install with the ICP pool sized to exactly one redeem's `(payout + fee)`. First redeem succeeds (boundary inclusive — `<` not `<=`); second redeem with pool now at 0 must reject with `#InsufficientIcpPool`. |
-| `test_redeem_happy_path.py` | **End-to-end swap smoke.** Faucet → approve → redeem the full flow, then verify Alice's ICP balance is exactly `icvc_amount × rate / 1e8` and the canister's balance dropped by payout + fee. Acts as a regression guard for the harness wiring (ledger init args, Candid encoding, fixtures). |
+| `test_redeem_happy_path.py` | **End-to-end swap smoke.** approve → redeem the full flow (Alice pre-funded with ICVC), then verify Alice's ICP balance is exactly `icvc_amount × rate / 1e8` and the canister's balance dropped by payout + fee. Acts as a regression guard for the harness wiring (ledger init args, Candid encoding, fixtures). |
 | `test_sequential_redeems.py` | **Stats math over many calls.** 5 sequential redeems, after each one every counter (`total_icvc_redeemed`, `total_icp_distributed`, `total_redemptions`, `icp_remaining`) must match the cumulative expectation. Catches off-by-one drift. |
-| `test_faucet_supply_exhaustion.py` | **ICVC ledger InsufficientFunds path.** Custom deployment with exactly 3 faucets' worth of ICVC; three distinct callers drain it, fourth caller hits the ledger's `InsufficientFunds` error wrapped by the faucet's "Transfer failed" Text. New code path the bash suite never exercises. |
 | `test_dao_tranches.py` | **Phased funding simulation.** The DAO mints ICP into the canister (using the ledger's minting subaccount + DEPLOYER sender), then again. A holder redemption between tranches verifies the balance arithmetic. Also asserts the frontend's progress denominator (`icp_remaining + total_icp_distributed`) is monotonic across tranches (only fees reduce it). |
 | `test_icp_send_failure.py` | **ICP-payout failure → saga recovery.** Uses a fault-injecting mock ICP ledger (`mock_icp_ledger.mo`) that passes the pool pre-check then fails the payout *after* the ICVC pull commits — impossible against healthy ledgers. **Trap mode:** the entry is left `#IcpSendPending` (ICP outcome unknown) and `retryRefund` must REFUSE it (the double-spend guard from #48). **`#Err` mode:** the clean failure triggers the in-line refund, returns `#IcpTransferFailed`, and clears the journal. |
 | `test_refund_recovery.py` | **Refund/burn retry recovery.** Uses the general `mock_ledger.mo` (runtime-toggleable `icrc1_transfer`) as both ledgers, failing then healing a transfer. Covers: `retryRefund` happy path (`#RefundPending` → refunded), `sweepBurn` flushing a failed inline burn, `getDedupKey` on a real stuck entry, and `forceCloseInFlight` clearing one. |

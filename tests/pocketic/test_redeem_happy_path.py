@@ -15,7 +15,7 @@ from conftest import ALICE
 
 HASH_OK = 24860
 HASH_ERR = 5048165
-EXCHANGE_RATE_E8S = 5_753_022  # fair-value derived rate (see #27)
+EXCHANGE_RATE_E8S = 5_758_856  # fair-value derived rate (see #27)
 ICP_FEE_E8S = 10_000
 
 

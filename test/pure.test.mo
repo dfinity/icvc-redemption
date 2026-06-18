@@ -41,9 +41,9 @@ test("payout: sub-cent dust truncates downward (favors the canister)", func() {
 // nicpToIcp
 // ============================================================================
 
-test("nicpToIcp: treasury nICP at the 2026-06-02 protocol rate", func() {
-    // 29_363_979_466_056 nICP e8s * 1e8 / 79_545_698 = 36_914_604_063_259 e8s
-    assert Pure.nicpToIcp(29_363_979_466_056, 79_545_698) == 36_914_604_063_259;
+test("nicpToIcp: treasury nICP at the 2026-06-18 COB protocol rate", func() {
+    // 29_363_979_466_056 nICP e8s * 1e8 / 79_295_072 = 37_031_279_151_945 e8s
+    assert Pure.nicpToIcp(29_363_979_466_056, 79_295_072) == 37_031_279_151_945;
 });
 
 test("nicpToIcp: zero rate is guarded (returns 0, no trap)", func() {
@@ -58,16 +58,17 @@ test("nicpToIcp: zero nICP yields zero ICP", func() {
 // computeFairValueRate
 // ============================================================================
 
-test("fairValue: 2026-06-02 treasury snapshot derives 5_753_022 e8s", func() {
-    // (78_145_768_936_670 ICP + 36_914_604_063_259 nICP-as-ICP) * 1e8
-    //   / 1_999_998_744_500_000 ICVC supply = 5_753_022 (0.05753022 ICP/ICVC)
+test("fairValue: 2026-06-18 COB treasury snapshot derives 5_758_856 e8s", func() {
+    // (78_145_768_936_670 ICP + treasury nICP valued in ICP) * 1e8
+    //   / 1_999_998_744_410_000 ICVC supply = 5_758_856 (0.05758856 ICP/ICVC).
+    // Matches the constants baked into main.mo for the prod deployment.
     let rate = Pure.computeFairValueRate(
-        1_999_998_744_500_000,  // ICVC total supply
+        1_999_998_744_410_000,  // ICVC total supply
         78_145_768_936_670,     // treasury ICP
         29_363_979_466_056,     // treasury nICP
-        79_545_698,             // nICP per ICP (e8s)
+        79_295_072,             // nICP per ICP (e8s)
     );
-    assert rate == (5_753_022 : Nat);
+    assert rate == (5_758_856 : Nat);
 });
 
 test("fairValue: nICP-free treasury reduces to ICP backing per ICVC", func() {

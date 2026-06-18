@@ -2,11 +2,11 @@
 
 [![Tests](https://github.com/dfinity/icvc-redemption/actions/workflows/test.yml/badge.svg)](https://github.com/dfinity/icvc-redemption/actions/workflows/test.yml)
 
-Canister for winding down the **ICVC DAO** on the Internet Computer. Token holders swap ICVC for ICP at a **fair-value rate derived from the DAO treasury's backing**: `(treasury ICP + treasury nICP valued in ICP) ÷ total ICVC supply`. As of the 2026-06-02 snapshot this is **0.05753022 ICP per ICVC**. The inputs are baked into the wasm as constants (with a recorded timestamp) and change only via upgrade; `getFairValueInputs()` exposes the live breakdown. The canister is deliberately **not autonomous** at the edges — admin plays an active role in recovery (see [`RECOVERY.md`](./RECOVERY.md)).
+Canister for winding down the **ICVC DAO** on the Internet Computer. Token holders swap ICVC for ICP at a **fair-value rate derived from the DAO treasury's backing**: `(treasury ICP + treasury nICP valued in ICP) ÷ total ICVC supply`. As of the 2026-06-18 COB snapshot this is **0.05758856 ICP per ICVC**. The inputs are baked into the wasm as constants (with a recorded timestamp) and change only via upgrade; `getFairValueInputs()` exposes the live breakdown. The canister is deliberately **not autonomous** at the edges — admin plays an active role in recovery (see [`RECOVERY.md`](./RECOVERY.md)).
 
 > **Status: play deployment only.** This canister is on IC mainnet but only **play ledgers** are connected — both the ICVC ledger (`zekdo-fyaaa-aaaae-agadq-cai`) and the ICP ledger (`yjeha-kqaaa-aaaae-agaea-cai`) are our own deployed copies of the official ICRC-1 ledger wasm, **not** the production ICVC token or the NNS ICP ledger. The redemption logic, saga journal, admin allowlist, and test suite are production-shaped.
 >
-> **The `faucet` method is a testing affordance only.** It lets anyone claim 10,000 ICVC every 10 seconds, so contributors and stakeholders can drive the redemption flow against the play ledgers. **It would be removed before any real-value deployment** — a production wind-down has no faucet; holders bring the ICVC they already own.
+> **Prod prep:** `main` is being readied for a real-value deployment — the test **faucet has been removed** (a production wind-down has none; holders bring the ICVC they already own), and a prod deploy points at the real ICVC token (`m6xut-mqaaa-aaaaq-aadua-cai`) and the NNS ICP ledger (`ryjl3-tyaaa-aaaaa-aaaba-cai`). The play deployment above stays live (tagged `play-v1`).
 
 ## Architecture
 
@@ -54,7 +54,6 @@ Canister for winding down the **ICVC DAO** on the Internet Computer. Token holde
 
 - a **Swap** view — enter an ICVC amount (or **MAX**), see the ICP they'll receive at the current rate, and confirm; the app runs the `icrc2_approve` → `redeem` pair for them;
 - a **Wallet** view — live ICVC and ICP balances (`icrc1_balance_of`);
-- a **Test ICVC Faucet** card — one-click `faucet` to get play ICVC (hidden/removed for real-value deployments);
 - an **exchange-rate panel** with an ℹ toggle that shows the full fair-value derivation from `getFairValueInputs()` (treasury ICP + nICP, total backing, ICVC supply, snapshot date);
 - a **pool stats** card with the "X distributed of (X + remaining) ICP in pool" progress bar (`getStats`) and recent redemption history (`getRedemptionHistory` / `getUserRedemptions`).
 
@@ -76,7 +75,7 @@ open "http://$FRONTEND.localhost:8000"
 bash scripts/deploy.sh -e ic
 ```
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full local-dev setup (identity, mops, the first-run cycles gotcha) and the common one-shots (faucet, redeem, stats, saga journal).
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full local-dev setup (identity, mops, the first-run cycles gotcha) and the common one-shots (redeem, stats, saga journal).
 
 ## Project layout
 
@@ -133,13 +132,13 @@ pytest tests/pocketic                              # PocketIC (deterministic tim
 
 | Layer | Location | Runs against | Covers |
 |---|---|---|---|
-| Unit | `test/*.test.mo` | Motoko interpreter (no replica) | Pure helpers in `Pure.mo`: payout math, memo encoding, cooldown rounding, Nat64 conversion |
+| Unit | `test/*.test.mo` | Motoko interpreter (no replica) | Pure helpers in `Pure.mo`: payout math, fair-value rate derivation, memo encoding, Nat64 conversion |
 | Integration | `tests/integration.sh` | `icp network` local | Auth, financial correctness (balance deltas, not just status), error paths, CallerGuard concurrency, ledger memo + `created_at_time`, pagination, query privacy, upgrade preservation, lock-release on error |
-| PocketIC | `tests/pocketic/` | PocketIC replica | Deterministic-time and failure-path scenarios the bash suite can't reach: faucet cooldown, pool drain, ICP-send failure → refund recovery (see [`CONTRIBUTING.md`](./CONTRIBUTING.md) and the suite's README) |
+| PocketIC | `tests/pocketic/` | PocketIC replica | Deterministic-time and failure-path scenarios the bash suite can't reach: pool drain, ICP-send failure → refund recovery, DAO tranche funding (see [`CONTRIBUTING.md`](./CONTRIBUTING.md) and the suite's README) |
 
 The integration suite is **idempotent** across runs (state-mutating cases clean up after themselves).
 
-Documented gaps the suite does **not** cover (don't assume regression safety for these): deterministic time control for the cooldown/lock TTL, forced traps inside redeem, `retryRefund` happy path, `#InsufficientIcpPool`, frontend UI tests. See [`CLAUDE.md`](./CLAUDE.md) for the full coverage map and the "how to add a new case" recipe.
+Documented gaps the suite does **not** cover (don't assume regression safety for these): deterministic time control for the lock TTL, forced traps inside redeem, `retryRefund` happy path, `#InsufficientIcpPool`, frontend UI tests. See [`CLAUDE.md`](./CLAUDE.md) for the full coverage map and the "how to add a new case" recipe.
 
 ## Phased funding model
 

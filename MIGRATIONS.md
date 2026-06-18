@@ -139,7 +139,6 @@ Things that get reset:
 - `admins` → just the deployer principal
 - `redemptions` → empty
 - `inFlight` saga journal → empty
-- `faucetClaims` → empty
 - All counters (`nextRedemptionId`, `totalIcvcRedeemed`, `totalIcpDistributed`) → 0
 
 Things that survive (because they live on the ledger):

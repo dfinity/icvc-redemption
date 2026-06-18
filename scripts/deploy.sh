@@ -7,8 +7,8 @@ set -euo pipefail
 #
 #   -e local  Dev box. Every canister reinstalled fresh, Internet Identity
 #             included. No state is precious. Fresh deploys start with an
-#             empty redemption history; use `faucet` + `redeem` to populate
-#             it during testing.
+#             empty redemption history; the deployer is pre-funded with ICVC,
+#             so `redeem` (after `icrc2_approve`) populates it during testing.
 #
 #   -e ic     Mainnet. **State on the ledger canisters is precious** (the
 #             pre-minted 20M ICVC and 781,458 ICP balances live there). This
@@ -19,7 +19,7 @@ set -euo pipefail
 #
 #             Pass --reinstall-redemption for the ONE-TIME schema-flip after
 #             a Motoko-incompatible refactor. That wipes the redemption
-#             canister's state (admins, redemption history, faucet claims).
+#             canister's state (admins, redemption history, saga journal).
 #             The ledger balances still survive because they're tracked on
 #             the ledger canisters, not inside the redemption canister.
 #
@@ -133,7 +133,6 @@ if [[ "$ENV" == "ic" && "$REINSTALL_REDEMPTION" == "1" ]]; then
   echo "***   - admins reset to deployer principal only                                     ***"
   echo "***   - redemption history wiped (empty until real activity)                        ***"
   echo "***   - saga journal wiped                                                          ***"
-  echo "***   - faucetClaims wiped                                                          ***"
   echo "*** Ledger balances are NOT touched.                                                ***"
 fi
 
@@ -285,9 +284,13 @@ if [[ "$DO_LEDGERS" -eq 1 ]]; then
       token_symbol = \"ICVC\";
       token_name = \"ICVC Token\";
       metadata = vec {};
-      // No faucet reserve (faucet removed): the local ICVC ledger starts empty;
-      // tests mint ICVC to users from the minting account as needed.
-      initial_balances = vec {};
+      // Faucet removed: instead of a canister reserve, the local ledger funds
+      // the DEPLOYER with ICVC so the integration suite can approve + redeem
+      // (and hand some to test-admin for multi-principal cases). Local-only —
+      // mainnet uses the real ICVC ledger and never runs this block.
+      initial_balances = vec {
+          record { record { owner = principal \"$DEPLOYER\"; subaccount = null }; 1_000_000_000_000_000 : nat };
+      };
       feature_flags = opt record { icrc2 = true };
       maximum_number_of_accounts = null;
       accounts_overflow_trim_quantity = null;
@@ -482,8 +485,7 @@ if [[ "$ENV" == "ic" ]]; then
   echo "  - Verify with: icp canister call -e ic redemption getStats '()'"
   echo "  - Add a backup admin (see RECOVERY.md)"
   echo "  - Add a backup controller (see RECOVERY.md)"
-  echo "  - Before any real-value deployment, the faucet is removed wholesale"
-  echo "    in code (method + pre-funding); see the go-live checklist in TODO.md"
+  echo "  - Fund the canister with ICP from the treasury; see the go-live checklist in TODO.md"
 else
   echo "Frontend URL: http://$FRONTEND_ID.localhost:8000"
 fi

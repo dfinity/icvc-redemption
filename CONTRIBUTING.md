@@ -53,7 +53,7 @@ bash tests/integration.sh --case redeem            # filter by substring
 
 `mops test` runs in CI on every PR (see [`.github/workflows/test.yml`](./.github/workflows/test.yml)). The integration suite is not yet wired into CI — run it locally before merging anything that touches the redemption flow.
 
-A third layer (PocketIC-based, in `tests/pocketic/`) covers deterministic-time and failure-path scenarios that the bash suite cannot (faucet cooldown, pool drain, ICP-send failure → refund recovery, and more). See [`tests/pocketic/README.md`](./tests/pocketic/README.md) for setup and the current scenario list.
+A third layer (PocketIC-based, in `tests/pocketic/`) covers deterministic-time and failure-path scenarios that the bash suite cannot (pool drain, ICP-send failure → refund recovery, and more). See [`tests/pocketic/README.md`](./tests/pocketic/README.md) for setup and the current scenario list.
 
 See [`CLAUDE.md`](./CLAUDE.md) for the coverage map (which cases protect which behaviours) and the "how to add a new case" recipe.
 
@@ -62,9 +62,6 @@ See [`CLAUDE.md`](./CLAUDE.md) for the coverage map (which cases protect which b
 ```bash
 # Type-check Motoko without deploying (uses the moc the test runner pins)
 $(mops toolchain bin moc) $(mops sources) --check src/redemption/main.mo
-
-# Get a faucet hit (10s cooldown per principal)
-echo y | icp canister call -e local redemption faucet '()'
 
 # Approve + redeem
 REDEMPTION_ID=$(python3 -c "import json; print(json.load(open('.icp/cache/mappings/local.ids.json'))['redemption'])")
