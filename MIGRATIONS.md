@@ -199,11 +199,13 @@ The safety net is **frequent small upgrades** rather than batched ones. Every PR
 
 The play deployment lives under the `ic` environment (our own ICRC-1 ledger copies, canisters `yofbu`/`zdlf2`). The real-value deployment is a **separate `prod` environment** (same `ic` network) so its ids never collide with play: they live in `.icp/data/mappings/prod.ids.json`, and the real ledger ids are committed in `canister_ids.json` under the `prod` key (ICVC `m6xut-mqaaa-aaaaq-aadua-cai`, ICP `ryjl3-tyaaa-aaaaa-aaaba-cai`). `deploy.sh` resolves those into the redemption init args and the frontend `config.js` — there are no hardcoded ledger principals.
 
-Run this from a **fresh clone** (so the play mappings/cache can't interfere), as the **HSM identity** (PIN-protected — each `create`/`install` will prompt to sign):
+**Deploying identity.** icp-cli 1.0.0 cannot sign with our Nitrokey/SmartCard-HSM (it derives the principal but fails ECDSA signing with `CKR_DATA_LEN_RANGE`; dfx/quill work, icp-cli doesn't). So the interim cutover deploys as the existing **`icvc-mainnet`** operator identity (`jaad2-…-xae`, the PEM key that signs with icp-cli and already runs play). The HSM ends up as a controller later, via the SNS-controllership go-live step (TODO) — not during this deploy. **Hard rule:** do **not** fund the real ICP pool while the canister is controlled solely by the single laptop-resident `icvc-mainnet` key; harden controllership first (step 2 below). An *empty* operator-controlled canister is low-risk; a *funded* one under one laptop key is the risk to avoid.
+
+Run from a **fresh clone** (so the play mappings/cache can't interfere):
 
 ```bash
-# 0. Identity must be the HSM and a funded controller-capable principal.
-icp identity default <hsm-identity>      # principal bcsqz-d32y3-...-eqe
+# 0. Deploy identity = the operator PEM key (signs with icp-cli; no HSM/PIN).
+icp identity default icvc-mainnet        # principal jaad2-…-xae
 
 # 1. First deploy: creates the prod redemption + frontend canisters, builds the
 #    redemption wasm reproducibly (Docker) + hash-gates it, installs with the
@@ -218,7 +220,7 @@ Default modes for a first `-e prod` deploy are `REDEMPTION_MODE=install` + `FRON
 REDEMPTION_MODE=upgrade FRONTEND_MODE=upgrade bash scripts/deploy.sh -e prod
 ```
 
-### Post-deploy (still as the HSM)
+### Post-deploy
 
 1. **Verify the ledger wiring** (the wasm hash proves the code; this proves the wiring):
    ```bash
@@ -228,16 +230,18 @@ REDEMPTION_MODE=upgrade FRONTEND_MODE=upgrade bash scripts/deploy.sh -e prod
    icp canister call -n ic "$PROD" getStats '()'
    ```
 
-2. **Set the controllers** to `{HSM, colleague, SNS root}` and drop any extra. `icp canister create` left the HSM as sole controller; add the other two, then confirm:
+2. **Harden controllership before funding** (the go-live "Transfer controllership to the ICVC SNS" step). Move off the single `icvc-mainnet` key to the intended set `{HSM, colleague, SNS root}` and drop the operator. The operator can add the other controllers itself (no HSM signature needed to *add* the HSM as a controller):
    ```bash
    icp canister settings update "$PROD" -n ic \
+     --add-controller bcsqz-d32y3-qxaqq-idz46-6zlhs-sbtkq-ar363-jbwzk-cqict-dyiig-eqe \
      --add-controller j3v5w-jzsmr-oliz7-sstl4-vzdzm-ez75n-oz46a-r6rji-zevtn-ler3c-wqe \
      --add-controller nuywj-oaaaa-aaaaq-aadta-cai
-   icp canister info "$PROD" -n ic        # confirm exactly the 3 intended controllers
+   icp canister settings update "$PROD" -n ic --remove-controller jaad2-ru7s6-wyypn-x7bzf-eq2bm-y3wag-3zl5w-63btz-apq2b-tsphc-xae
+   icp canister info "$PROD" -n ic        # confirm exactly the intended controllers
    ```
-   Do the same for the frontend canister id.
+   Do the same for the frontend canister id. (After this, prod *upgrades* go via dfx+HSM or an SNS proposal — icp-cli can't sign as any of these.)
 
-3. **Fund the ICP pool** — the DAO transfers the payout ICP to `$PROD` on the real ICP ledger (`ryjl3-…`). Pool accounting then tracks the live `icrc1_balance_of` (see "Phased funding model" in `README.md`). Do this **only after** the security review and the controller/wiring checks above pass.
+3. **Fund the ICP pool** — the DAO transfers the payout ICP to `$PROD` on the real ICP ledger (`ryjl3-…`). Pool accounting then tracks the live `icrc1_balance_of` (see "Phased funding model" in `README.md`). Do this **only after** the security review and steps 1–2 pass.
 
 > The `prod` env never deploys the ledgers (`DO_LEDGERS=0`) and never touches the play `ic` canisters. The only shared infrastructure is the `ic` network itself.
 
