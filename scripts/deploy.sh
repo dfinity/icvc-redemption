@@ -32,16 +32,11 @@ set -euo pipefail
 # Prerequisites for -e ic:
 #   - Your icp-cli identity must be a controller of the mainnet canisters
 #     (import the original deploy PEM via: icp identity import --from-pem ...).
-#   - .icp/cache/mappings/ic.ids.json must list the existing mainnet canister
-#     ids. Seed it from canister_ids.json:
-#
-#       mkdir -p .icp/cache/mappings
-#       python3 - <<'PY'
-#       import json
-#       src = json.load(open('canister_ids.json'))
-#       out = {k: v['ic'] for k, v in src.items() if 'ic' in v}
-#       json.dump(out, open('.icp/cache/mappings/ic.ids.json', 'w'), indent=2)
-#       PY
+#   - .icp/data/mappings/ic.ids.json maps the canister names to the existing
+#     mainnet ids so icp-cli REUSES them (rather than creating new canisters).
+#     This file is committed; Step 0 also auto-seeds it from canister_ids.json
+#     if missing. (Note: connected-network ids live in .icp/data/ — persistent;
+#     .icp/cache/ is ephemeral and only used for the local managed network.)
 #
 #   - Docker is required on -e ic: the redemption WASM is built reproducibly
 #     via Dockerfile.build (linux/amd64) and hash-gated against
@@ -144,12 +139,16 @@ fi
 
 # ---- Helpers ---------------------------------------------------------------
 
-# Read a canister id assigned (or recorded) by icp-cli for the current env.
+# Read a canister id recorded by icp-cli for the current env. icp-cli stores
+# connected-network (ic) ids in the PERSISTENT .icp/data/mappings/, and managed
+# (local) ids in the ephemeral .icp/cache/mappings/ it rebuilds itself.
 canister_id() {
   local name="$1"
+  local dir="cache"
+  [[ "$ENV" == "ic" ]] && dir="data"
   python3 -c "
 import json
-with open('.icp/cache/mappings/${ENV}.ids.json') as f:
+with open('.icp/${dir}/mappings/${ENV}.ids.json') as f:
     print(json.load(f)['${name}'])
 "
 }
@@ -157,10 +156,10 @@ with open('.icp/cache/mappings/${ENV}.ids.json') as f:
 # Invoke a canister call non-interactively. `icp canister call` has no --yes
 # flag and prompts for confirmation on update calls; we pipe `y`.
 #
-# For -e ic we translate the canister name to a principal and use -n ic:
-# name->id resolution against .icp/cache/mappings/ic.ids.json has historically
-# been unreliable for connected networks, and targeting the principal directly
-# is version-independent and always works.
+# For -e ic we translate the canister name to a principal and use -n ic.
+# Targeting the principal directly is version-independent and avoids depending
+# on icp-cli's connected-network name resolution (which reads
+# .icp/data/mappings/ic.ids.json — now seeded in Step 0).
 icp_call() {
   local name="$1"
   shift
@@ -176,22 +175,20 @@ icp_call() {
 # ---- Step 0: pre-flight for mainnet ---------------------------------------
 
 if [[ "$ENV" == "ic" ]]; then
-  if [[ ! -f .icp/cache/mappings/ic.ids.json ]]; then
-    cat <<'EOF' >&2
-Error: .icp/cache/mappings/ic.ids.json is missing.
-
-This script never creates mainnet canisters — it only installs into
-existing ones. Seed the mappings file from canister_ids.json first:
-
-  mkdir -p .icp/cache/mappings
-  python3 - <<'PY'
-  import json
-  src = json.load(open('canister_ids.json'))
-  out = {k: v['ic'] for k, v in src.items() if 'ic' in v}
-  json.dump(out, open('.icp/cache/mappings/ic.ids.json', 'w'), indent=2)
-  PY
-EOF
-    exit 1
+  # icp-cli reads connected-network ids from .icp/data/mappings/ic.ids.json
+  # (persistent; committed in this repo). Without it, `icp deploy`/install would
+  # try to CREATE new mainnet canisters instead of reusing the existing ones.
+  # It is committed, but seed it from canister_ids.json as a fallback if absent
+  # (icp-cli has no canister_ids.json fallback of its own).
+  if [[ ! -f .icp/data/mappings/ic.ids.json ]]; then
+    echo "Seeding .icp/data/mappings/ic.ids.json from canister_ids.json..."
+    mkdir -p .icp/data/mappings
+    python3 - <<'PY'
+import json
+src = json.load(open('canister_ids.json'))
+out = {k: v['ic'] for k, v in src.items() if 'ic' in v}
+json.dump(out, open('.icp/data/mappings/ic.ids.json', 'w'), indent=2)
+PY
   fi
 fi
 
@@ -397,9 +394,9 @@ echo ""
 echo "--- Installing Redemption canister (mode: $REDEMPTION_MODE) ---"
 if [[ "$ENV" == "ic" ]]; then
   # Target the principal directly with -n ic and pass --wasm explicitly: this
-  # is version-independent and avoids relying on name->id resolution against
-  # .icp/cache/mappings/ic.ids.json for connected networks (this is also the
-  # exact path verified by the alignment upgrade — see REPRODUCIBLE_BUILD.md).
+  # is version-independent and avoids relying on icp-cli's connected-network
+  # name resolution (this is also the exact path verified by the alignment
+  # upgrade — see REPRODUCIBLE_BUILD.md).
   icp canister install "$REDEMPTION_ID" -n ic --mode "$REDEMPTION_MODE" --yes \
       --wasm "$REDEMPTION_WASM" \
       --args "$REDEMPTION_INIT_ARGS" >/dev/null
