@@ -68,8 +68,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$ENV" != "local" && "$ENV" != "ic" ]]; then
-  echo "Error: -e must be 'local' or 'ic'"
+if [[ "$ENV" != "local" && "$ENV" != "ic" && "$ENV" != "prod" ]]; then
+  echo "Error: -e must be 'local', 'ic' (play mainnet), or 'prod' (real-ledger mainnet)"
   exit 1
 fi
 if [[ "$REINSTALL_REDEMPTION" == "1" && "$ENV" != "ic" ]]; then
@@ -108,15 +108,24 @@ else
   fi
   DO_II=0                 # mainnet uses the global identity.ic0.app
   DO_LEDGERS=0            # NEVER touch mainnet ledger state
-  REDEMPTION_MODE=upgrade # preserves state
-  # Asset-canister upgrade = re-sync. Overridable: the FIRST deploy that
-  # switches the frontend from the old SDK assetstorage wasm to the
-  # @dfinity/asset-canister recipe wasm should use reinstall, because an
-  # in-place upgrade across the two wasm lineages may trap in post_upgrade.
-  # Reinstall is safe here (assets are re-uploaded by the sync step; canister
-  # id, controllers, and cycles are preserved). After the switch, upgrade is
-  # fine.  Run the one-time switch with: FRONTEND_MODE=reinstall ... -e ic
-  FRONTEND_MODE="${FRONTEND_MODE:-upgrade}"
+  if [[ "$ENV" == "prod" ]]; then
+    # Real-value deployment to FRESH, own redemption + frontend canisters. The
+    # first deploy installs code into newly-created (empty) canisters, so the
+    # default mode is `install`; both are env-overridable so later upgrades run
+    # with REDEMPTION_MODE=upgrade FRONTEND_MODE=upgrade ... -e prod.
+    REDEMPTION_MODE="${REDEMPTION_MODE:-install}"
+    FRONTEND_MODE="${FRONTEND_MODE:-reinstall}"
+  else
+    REDEMPTION_MODE=upgrade # play mainnet: preserves state
+    # Asset-canister upgrade = re-sync. Overridable: the FIRST deploy that
+    # switches the frontend from the old SDK assetstorage wasm to the
+    # @dfinity/asset-canister recipe wasm should use reinstall, because an
+    # in-place upgrade across the two wasm lineages may trap in post_upgrade.
+    # Reinstall is safe here (assets are re-uploaded by the sync step; canister
+    # id, controllers, and cycles are preserved). After the switch, upgrade is
+    # fine.  Run the one-time switch with: FRONTEND_MODE=reinstall ... -e ic
+    FRONTEND_MODE="${FRONTEND_MODE:-upgrade}"
+  fi
   if [[ "$REINSTALL_REDEMPTION" == "1" ]]; then
     REDEMPTION_MODE=reinstall
   fi
@@ -144,7 +153,9 @@ fi
 canister_id() {
   local name="$1"
   local dir="cache"
-  [[ "$ENV" == "ic" ]] && dir="data"
+  # Connected networks (ic, prod) keep ids in the persistent .icp/data/mappings;
+  # the local managed network uses the ephemeral .icp/cache/mappings.
+  [[ "$ENV" != "local" ]] && dir="data"
   python3 -c "
 import json
 with open('.icp/${dir}/mappings/${ENV}.ids.json') as f:
@@ -162,7 +173,8 @@ with open('.icp/${dir}/mappings/${ENV}.ids.json') as f:
 icp_call() {
   local name="$1"
   shift
-  if [[ "$ENV" == "ic" ]]; then
+  if [[ "$ENV" != "local" ]]; then
+    # ic + prod are both the `ic` network; target the principal directly.
     local principal
     principal=$(canister_id "$name")
     echo "y" | icp canister call -n ic "$principal" "$@"
@@ -173,20 +185,23 @@ icp_call() {
 
 # ---- Step 0: pre-flight for mainnet ---------------------------------------
 
-if [[ "$ENV" == "ic" ]]; then
-  # icp-cli reads connected-network ids from .icp/data/mappings/ic.ids.json
+if [[ "$ENV" != "local" ]]; then
+  # icp-cli reads connected-network ids from .icp/data/mappings/<env>.ids.json
   # (persistent; committed in this repo). Without it, `icp deploy`/install would
   # try to CREATE new mainnet canisters instead of reusing the existing ones.
-  # It is committed, but seed it from canister_ids.json as a fallback if absent
-  # (icp-cli has no canister_ids.json fallback of its own).
-  if [[ ! -f .icp/data/mappings/ic.ids.json ]]; then
-    echo "Seeding .icp/data/mappings/ic.ids.json from canister_ids.json..."
+  # Seed it from canister_ids.json (the env's key) as a fallback if absent
+  # (icp-cli has no canister_ids.json fallback of its own). For `prod` this
+  # seeds only the REAL external ledgers (icvc/icp); the prod redemption +
+  # frontend ids are written by `icp canister create` on the first deploy.
+  if [[ ! -f ".icp/data/mappings/${ENV}.ids.json" ]]; then
+    echo "Seeding .icp/data/mappings/${ENV}.ids.json from canister_ids.json (${ENV} ids)..."
     mkdir -p .icp/data/mappings
-    python3 - <<'PY'
-import json
+    ENV="$ENV" python3 - <<'PY'
+import json, os
+key = os.environ['ENV']
 src = json.load(open('canister_ids.json'))
-out = {k: v['ic'] for k, v in src.items() if 'ic' in v}
-json.dump(out, open('.icp/data/mappings/ic.ids.json', 'w'), indent=2)
+out = {k: v[key] for k, v in src.items() if key in v}
+json.dump(out, open(f'.icp/data/mappings/{key}.ids.json', 'w'), indent=2)
 PY
   fi
 fi
@@ -237,6 +252,16 @@ if [[ "$ENV" == "local" ]]; then
   CANISTERS=(internet_identity icvc_ledger icp_ledger redemption frontend)
   echo ""
   echo "--- Creating canisters (skip if already present) ---"
+  for c in "${CANISTERS[@]}"; do create_if_missing "$c"; done
+elif [[ "$ENV" == "prod" ]]; then
+  # Real-value mainnet: we create only OUR canisters (redemption + frontend).
+  # The ICVC + ICP ledgers are the real, externally-owned tokens — never
+  # created here (their ids are pre-seeded in prod.ids.json). `icp canister
+  # create` sets the calling identity (the HSM) as the sole controller; the
+  # SNS-root + colleague controllers are added afterward (see MIGRATIONS.md §7).
+  CANISTERS=(redemption frontend)
+  echo ""
+  echo "--- Creating prod canisters (skip if already present) ---"
   for c in "${CANISTERS[@]}"; do create_if_missing "$c"; done
 fi
 
@@ -361,7 +386,7 @@ REDEMPTION_INIT_ARGS="(record {
 # reproducible hash, so for -e ic we build hermetically via Dockerfile.build
 # and verify the result against the committed redemption.wasm.sha256.
 REDEMPTION_WASM=".icp/cache/artifacts/redemption"
-if [[ "$ENV" == "ic" ]]; then
+if [[ "$ENV" != "local" ]]; then
   echo ""
   echo "--- Building reproducible redemption wasm (Docker, linux/amd64) ---"
   if ! command -v docker >/dev/null 2>&1; then
@@ -395,11 +420,11 @@ fi
 
 echo ""
 echo "--- Installing Redemption canister (mode: $REDEMPTION_MODE) ---"
-if [[ "$ENV" == "ic" ]]; then
+if [[ "$ENV" != "local" ]]; then
   # Target the principal directly with -n ic and pass --wasm explicitly: this
   # is version-independent and avoids relying on icp-cli's connected-network
   # name resolution (this is also the exact path verified by the alignment
-  # upgrade — see REPRODUCIBLE_BUILD.md).
+  # upgrade — see REPRODUCIBLE_BUILD.md). Applies to both play (ic) and prod.
   icp canister install "$REDEMPTION_ID" -n ic --mode "$REDEMPTION_MODE" --yes \
       --wasm "$REDEMPTION_WASM" \
       --args "$REDEMPTION_INIT_ARGS" >/dev/null
@@ -478,14 +503,21 @@ if [[ -n "$POOL_E8S" ]]; then
   echo "ICP Pool (live canister balance): $(awk "BEGIN { printf \"%.2f\", $POOL_E8S / 100000000 }") ICP"
 fi
 echo ""
-if [[ "$ENV" == "ic" ]]; then
+if [[ "$ENV" != "local" ]]; then
   echo "Frontend URL: https://$FRONTEND_ID.icp0.io"
   echo ""
   echo "Post-deploy reminders:"
-  echo "  - Verify with: icp canister call -e ic redemption getStats '()'"
-  echo "  - Add a backup admin (see RECOVERY.md)"
-  echo "  - Add a backup controller (see RECOVERY.md)"
-  echo "  - Fund the canister with ICP from the treasury; see the go-live checklist in TODO.md"
+  echo "  - Verify with: icp canister call -n ic $REDEMPTION_ID getStats '()'"
+  if [[ "$ENV" == "prod" ]]; then
+    echo "  - Verify the REAL ledgers are wired: icp canister call -n ic $REDEMPTION_ID getLedgers '()' --query"
+    echo "      (must show ICVC $ICVC_LEDGER_ID + ICP $ICP_LEDGER_ID)"
+    echo "  - Set controllers to {HSM, colleague, SNS root} and drop any extras (MIGRATIONS.md §7)"
+    echo "  - Fund the canister with ICP from the treasury; see the go-live checklist in TODO.md"
+  else
+    echo "  - Add a backup admin (see RECOVERY.md)"
+    echo "  - Add a backup controller (see RECOVERY.md)"
+    echo "  - Fund the canister with ICP from the treasury; see the go-live checklist in TODO.md"
+  fi
 else
   echo "Frontend URL: http://$FRONTEND_ID.localhost:8000"
 fi

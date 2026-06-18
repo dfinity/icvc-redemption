@@ -453,6 +453,20 @@ case_getFairValueInputs_derives_rate() {
     return 1
 }
 
+case_getLedgers_returns_configured_ledgers() {
+    # getLedgers exposes the ledger ids the canister was installed with (the
+    # init args), so a deployment's ledger wiring is verifiable on-chain even
+    # though the reproducible wasm hash doesn't encode it. Anonymous-readable.
+    local out
+    out=$(icp_call_id anonymous redemption getLedgers '()' --query)
+    if [[ "$out" == *"$ICVC_ID"* ]] && [[ "$out" == *"$ICP_ID"* ]]; then
+        return 0
+    fi
+    printf "    ${RED}getLedgers did not return the configured ledger ids${RESET}\n"
+    printf "    ${DIM}want icvc=%s icp=%s; got:%s${RESET}\n" "$ICVC_ID" "$ICP_ID" "$out"
+    return 1
+}
+
 case_setExchangeRate_method_removed() {
     local out
     out=$(icp_call redemption setExchangeRate '(1 : nat)')
@@ -702,6 +716,7 @@ run_case "getMyInFlight filters caller"          case_getMyInFlight_filters_call
 run_case "forceCloseInFlight admin happy path"   case_forceCloseInFlight_admin_happy_path
 run_case "getExchangeRate matches derived fair-value rate" case_getExchangeRate_matches_derived_rate
 run_case "getFairValueInputs derives the rate"   case_getFairValueInputs_derives_rate
+run_case "getLedgers returns configured ledgers" case_getLedgers_returns_configured_ledgers
 run_case "setExchangeRate method is gone (H2)"        case_setExchangeRate_method_removed
 run_case "getStats.total_icvc_redeemed increments" case_stats_total_icvc_redeemed_increments
 run_case "addAdmin happy path then removeAdmin"  case_addAdmin_happy_then_remove

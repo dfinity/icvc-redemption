@@ -165,6 +165,7 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
             #getExchangeRate : () -> ();
             #getFairValueInputs : () -> ();
             #getInFlight : () -> ();
+            #getLedgers : () -> ();
             #getPendingBurns : () -> ();
             #getMyInFlight : () -> ();
             #getRedemptionHistory : () -> (offset : Nat, limit : Nat);
@@ -976,6 +977,21 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
             backing_icp_e8s = TREASURY_ICP_E8S + nicp_as_icp_e8s;
             inputs_recorded_at = FAIR_VALUE_INPUTS_RECORDED_AT_NS;
             exchange_rate_e8s = exchange_rate_e8s;
+        };
+    };
+
+    /// Expose the ledger canisters this redemption canister is wired to (set at
+    /// install via the init args). Anonymous-readable, like getStats: the
+    /// reproducible wasm hash proves the *code*, but the ledger ids arrive as
+    /// install args and aren't in the hash — so this getter lets anyone confirm
+    /// a deployment talks to the intended ICVC + ICP ledgers and nothing else.
+    public query func getLedgers() : async {
+        icvc_ledger : Principal;
+        icp_ledger : Principal;
+    } {
+        {
+            icvc_ledger = Principal.fromActor(icvc_ledger);
+            icp_ledger = Principal.fromActor(icp_ledger);
         };
     };
 

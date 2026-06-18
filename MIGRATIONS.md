@@ -195,6 +195,54 @@ The safety net is **frequent small upgrades** rather than batched ones. Every PR
 
 ---
 
+## 7. Real-value production cutover (`-e prod`)
+
+The play deployment lives under the `ic` environment (our own ICRC-1 ledger copies, canisters `yofbu`/`zdlf2`). The real-value deployment is a **separate `prod` environment** (same `ic` network) so its ids never collide with play: they live in `.icp/data/mappings/prod.ids.json`, and the real ledger ids are committed in `canister_ids.json` under the `prod` key (ICVC `m6xut-mqaaa-aaaaq-aadua-cai`, ICP `ryjl3-tyaaa-aaaaa-aaaba-cai`). `deploy.sh` resolves those into the redemption init args and the frontend `config.js` — there are no hardcoded ledger principals.
+
+Run this from a **fresh clone** (so the play mappings/cache can't interfere), as the **HSM identity** (PIN-protected — each `create`/`install` will prompt to sign):
+
+```bash
+# 0. Identity must be the HSM and a funded controller-capable principal.
+icp identity default <hsm-identity>      # principal bcsqz-d32y3-...-eqe
+
+# 1. First deploy: creates the prod redemption + frontend canisters, builds the
+#    redemption wasm reproducibly (Docker) + hash-gates it, installs with the
+#    REAL ledger ids resolved from the prod registry, and syncs the frontend.
+#    Keep login OFF until II is aligned with the NNS dApp (see CONTRIBUTING.md).
+LOGIN_ENABLED=false bash scripts/deploy.sh -e prod
+```
+
+Default modes for a first `-e prod` deploy are `REDEMPTION_MODE=install` + `FRONTEND_MODE=reinstall` (empty, freshly-created canisters). For **later** upgrades, preserve state:
+
+```bash
+REDEMPTION_MODE=upgrade FRONTEND_MODE=upgrade bash scripts/deploy.sh -e prod
+```
+
+### Post-deploy (still as the HSM)
+
+1. **Verify the ledger wiring** (the wasm hash proves the code; this proves the wiring):
+   ```bash
+   PROD=$(python3 -c "import json;print(json.load(open('.icp/data/mappings/prod.ids.json'))['redemption'])")
+   icp canister call -n ic "$PROD" getLedgers '()' --query
+   # must show icvc_ledger = m6xut-… and icp_ledger = ryjl3-…
+   icp canister call -n ic "$PROD" getStats '()'
+   ```
+
+2. **Set the controllers** to `{HSM, colleague, SNS root}` and drop any extra. `icp canister create` left the HSM as sole controller; add the other two, then confirm:
+   ```bash
+   icp canister settings update "$PROD" -n ic \
+     --add-controller j3v5w-jzsmr-oliz7-sstl4-vzdzm-ez75n-oz46a-r6rji-zevtn-ler3c-wqe \
+     --add-controller nuywj-oaaaa-aaaaq-aadta-cai
+   icp canister info "$PROD" -n ic        # confirm exactly the 3 intended controllers
+   ```
+   Do the same for the frontend canister id.
+
+3. **Fund the ICP pool** — the DAO transfers the payout ICP to `$PROD` on the real ICP ledger (`ryjl3-…`). Pool accounting then tracks the live `icrc1_balance_of` (see "Phased funding model" in `README.md`). Do this **only after** the security review and the controller/wiring checks above pass.
+
+> The `prod` env never deploys the ledgers (`DO_LEDGERS=0`) and never touches the play `ic` canisters. The only shared infrastructure is the `ic` network itself.
+
+---
+
 ## Quick reference: which mode for which situation?
 
 | Situation | `-e local` | `-e ic` | Notes |

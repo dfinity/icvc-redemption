@@ -3,10 +3,12 @@
     "ic": "zdlf2-iaaaa-aaaae-agada-cai"
   },
   "icp_ledger": {
-    "ic": "yjeha-kqaaa-aaaae-agaea-cai"
+    "ic": "yjeha-kqaaa-aaaae-agaea-cai",
+    "prod": "ryjl3-tyaaa-aaaaa-aaaba-cai"
   },
   "icvc_ledger": {
-    "ic": "zekdo-fyaaa-aaaae-agadq-cai"
+    "ic": "zekdo-fyaaa-aaaae-agadq-cai",
+    "prod": "m6xut-mqaaa-aaaaq-aadua-cai"
   },
   "redemption": {
     "ic": "yofbu-hiaaa-aaaae-agaeq-cai"
