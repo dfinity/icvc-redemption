@@ -30,15 +30,15 @@ This doc complements [`RECOVERY.md`](./RECOVERY.md) (admin recovery) and [`READM
    shred -u /tmp/original.pem   # don't leave a key file on disk
    ```
 
-2. **Seed the icp-cli mappings file.** icp-cli stores per-environment canister ids under `.icp/cache/mappings/<env>.ids.json` (gitignored). Seed `ic.ids.json` from the committed `canister_ids.json`:
+2. **icp-cli mappings file.** icp-cli reads connected-network (ic) canister ids from `.icp/data/mappings/ic.ids.json` (persistent — **committed** in this repo; *not* the ephemeral `.icp/cache/mappings/`, which is only for the local managed network). It is already present, and `scripts/deploy.sh -e ic` auto-seeds it from the committed `canister_ids.json` if missing — so normally there's nothing to do. To (re)seed manually:
 
    ```bash
-   mkdir -p .icp/cache/mappings
+   mkdir -p .icp/data/mappings
    python3 - <<'PY'
    import json
    src = json.load(open('canister_ids.json'))
    out = {k: v['ic'] for k, v in src.items() if 'ic' in v}
-   json.dump(out, open('.icp/cache/mappings/ic.ids.json', 'w'), indent=2)
+   json.dump(out, open('.icp/data/mappings/ic.ids.json', 'w'), indent=2)
    PY
    ```
 
