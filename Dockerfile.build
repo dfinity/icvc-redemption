@@ -21,10 +21,16 @@
 # would produce a linux/arm64 wasm with a different hash). On arm64 hosts this
 # runs under emulation (slower, still byte-identical).
 #
-# For a fully hermetic build, also pin the base image by digest instead of tag:
-#   FROM --platform=linux/amd64 node:20.18.1-bookworm-slim@sha256:<digest>
-# (a moving tag can change the libc/coreutils under you; pinning removes it).
-FROM --platform=linux/amd64 node:20.18.1-bookworm-slim
+# The base image is pinned by immutable @sha256 digest (not just the tag): a
+# retagged or compromised upstream image could otherwise change the build
+# environment and run attacker code during CI / local mainnet builds — the wasm
+# hash-gate stops bad artifacts from deploying but not code execution at build
+# time. The `:20.18.1-bookworm-slim` tag is kept for readability; Docker resolves
+# by digest. To refresh (e.g. for a base-image security update):
+#   docker pull --platform=linux/amd64 node:<tag>
+#   docker inspect --format '{{join .RepoDigests "\n"}}' node:<tag>
+# then update the digest below and re-run scripts/verify-wasm.sh --write on Linux.
+FROM --platform=linux/amd64 node:20.18.1-bookworm-slim@sha256:b2c8e0eb8a6aeeae33b2711f8f516003e27ee45804e270468d937b3214f2f0cc
 
 # Pin the mops CLI: `mops sources` ordering/flags feed straight into the moc
 # invocation, so the CLI version is part of the reproducibility contract.

@@ -153,11 +153,12 @@ catch.
   `eb1fedc3…`, Linux x86_64 gives `491dc324…`). Always verify on the canonical
   platform (Linux x86_64 / `Dockerfile.build`). A cross-platform mismatch is
   expected and is **not** evidence of tampering; a *same-platform* mismatch is.
-- **`Dockerfile.build` pins the base image by tag, not digest.** For a fully
-  hermetic build, pin `FROM node:...@sha256:<digest>` (noted inline in the
-  Dockerfile). A moving tag changes the surrounding libc/coreutils, not `moc`,
-  so it is very unlikely to affect the wasm — but digest-pinning removes the
-  last variable.
+- **`Dockerfile.build` pins the base image by immutable `@sha256` digest**, so a
+  retagged or compromised upstream `node` image cannot change the build
+  environment (or run code at build time) underneath CI / mainnet builds. To
+  refresh the base image for a security update, re-resolve the digest (the
+  Dockerfile header has the two commands) and re-run `verify-wasm.sh --write` on
+  Linux to update `redemption.wasm.sha256`.
 - This verifies the **code** (module hash), not the canister's stable state or
   its controller set. Check controllers separately via the same
   `dfx canister info` output.
