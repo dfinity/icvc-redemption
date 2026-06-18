@@ -430,6 +430,10 @@ if ! command -v npm >/dev/null 2>&1; then
   echo "ERROR: npm is required for the frontend recipe build (esbuild). Install Node.js >= 20." >&2
   exit 1
 fi
+# Sign-in kill-switch (temporary). Defaults on for local/play; set
+# LOGIN_ENABLED=false (e.g. for the prod deploy) to ship the frontend with the
+# Login button disabled until II is aligned with the NNS dApp.
+LOGIN_ENABLED="${LOGIN_ENABLED:-true}"
 sed \
   -e "s|__CANISTER_ID_REDEMPTION__|$REDEMPTION_ID|g" \
   -e "s|__CANISTER_ID_ICVC_LEDGER__|$ICVC_LEDGER_ID|g" \
@@ -437,6 +441,7 @@ sed \
   -e "s|__HOST__|$HOST|g" \
   -e "s|__II_PROVIDER__|$II_PROVIDER|g" \
   -e "s|__DERIVATION_ORIGIN__|$DERIVATION_ORIGIN|g" \
+  -e "s|__LOGIN_ENABLED__|$LOGIN_ENABLED|g" \
   src/frontend/js/config.js.template > src/frontend/js/config.js
 
 echo "--- Deploying frontend (asset-canister recipe builds + syncs; mode: $FRONTEND_MODE) ---"
