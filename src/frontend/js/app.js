@@ -175,7 +175,19 @@ window.toggleRateInfo = function() {
   $("rate-info-btn").setAttribute("aria-expanded", String(!nowHidden));
 };
 
+// Temporary: sign-in is disabled until II is aligned with the NNS dApp
+// (ii-alternative-origins). When disabled, the Login button is greyed out and a
+// banner is shown; gate handleConnect too so nothing can trigger a login.
+function applyLoginGate() {
+  if (CONFIG.LOGIN_ENABLED) return;
+  const btn = $("btn-connect");
+  if (btn) { btn.disabled = true; btn.textContent = "Sign-in temporarily disabled"; }
+  const banner = $("login-disabled-banner");
+  if (banner) banner.classList.remove("hidden");
+}
+
 window.handleConnect = async function() {
+  if (!CONFIG.LOGIN_ENABLED) return;
   if (!authClient) return;
   const loginOptions = {
     identityProvider: CONFIG.II_PROVIDER,
@@ -594,4 +606,5 @@ function playKaChing() {
 // Init
 // ============================================================
 await initAuth();
+applyLoginGate();
 await refreshStats();
