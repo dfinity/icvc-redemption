@@ -85,9 +85,8 @@ def test_sequential_redeems_accounting(deployment):
     expected_payout = redeem_each * EXCHANGE_RATE_E8S // 100_000_000  # 622_924_400 e8s
     n_redeems = 5
 
-    # Alice faucets ICVC + approves enough for all n redeems.
+    # Alice is pre-funded with ICVC; approve enough for all n redeems.
     d.pic.set_sender(ALICE)
-    _ = d.pic.update_call(d.redemption, "faucet", encode([]))
     _ = d.pic.update_call(
         d.icvc_ledger, "icrc2_approve",
         encode(_approve_args(

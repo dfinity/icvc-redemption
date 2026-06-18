@@ -115,9 +115,10 @@ def _make_deployment(
 ) -> Deployment:
     """Install ICVC + ICP ledgers and the redemption canister.
 
-    Each ledger is initialised with the redemption canister as the recipient
-    of `*_initial` e8s, mirroring the production deploy where the canister
-    is pre-funded via ledger init args.
+    The ICP ledger pre-funds the redemption canister with `icp_initial` e8s
+    (the payout pool). The ICVC ledger pre-funds each test user with
+    `icvc_initial` e8s — the faucet has been removed, so tests get their ICVC
+    from genesis balances and go straight to approve -> redeem.
     """
     icvc_id = pic.create_canister()
     icp_id = pic.create_canister()
@@ -133,7 +134,9 @@ def _make_deployment(
             minting_owner=DEPLOYER,
             minting_subaccount=ICVC_MINTING_SUBACCOUNT,
             controller=DEPLOYER,
-            initial_balances=[(redemption_id, icvc_initial)],
+            # Fund the test users (not the canister) — faucet is gone, so each
+            # user starts with `icvc_initial` ICVC to approve + redeem.
+            initial_balances=[(u, icvc_initial) for u in (ALICE, BOB, CAROL, DAVE)],
             token_symbol="ICVC",
             token_name="ICVC Token",
         ),
@@ -173,11 +176,11 @@ def _make_deployment(
 
 @pytest.fixture
 def deployment(pic, redemption_wasm, icrc1_wasm) -> Deployment:
-    """Standard deployment: ICVC ledger pre-funds redemption with 20M ICVC
-    (the faucet supply), ICP ledger pre-funds with 1000 ICP."""
+    """Standard deployment: ICVC ledger pre-funds each test user with 20M ICVC,
+    ICP ledger pre-funds the redemption canister with 1000 ICP."""
     return _make_deployment(
         pic, redemption_wasm, icrc1_wasm,
-        icvc_initial=2_000_000_000_000_000,   # 20M ICVC e8s
+        icvc_initial=2_000_000_000_000_000,   # 20M ICVC e8s per test user
         icp_initial=100_000_000_000,          # 1000 ICP e8s
     )
 
@@ -207,23 +210,6 @@ def boundary_pool_deployment(pic, redemption_wasm, icrc1_wasm) -> Deployment:
         pic, redemption_wasm, icrc1_wasm,
         icvc_initial=2_000_000_000_000_000,
         icp_initial=ONE_REDEEM_ICP_COST_E8S,
-    )
-
-
-# Three faucet calls' worth of ICVC plus their fees, sized to drain exactly.
-# Each faucet sends 10_000 ICVC e8s = 10^12; ICVC ledger fee is 10_000 e8s.
-TINY_FAUCET_ICVC_E8S = 3 * (10_000 * 100_000_000) + 3 * 10_000
-
-
-@pytest.fixture
-def tiny_faucet_deployment(pic, redemption_wasm, icrc1_wasm) -> Deployment:
-    """Deployment with ICVC supply sized to exactly three faucet payouts
-    plus their fees. The fourth faucet caller must hit the ICVC ledger's
-    InsufficientFunds path."""
-    return _make_deployment(
-        pic, redemption_wasm, icrc1_wasm,
-        icvc_initial=TINY_FAUCET_ICVC_E8S,
-        icp_initial=100_000_000_000,  # normal ICP pool, unused in faucet tests
     )
 
 
@@ -287,7 +273,8 @@ def make_faulty_icp_deployment(
             minting_owner=DEPLOYER,
             minting_subaccount=ICVC_MINTING_SUBACCOUNT,
             controller=DEPLOYER,
-            initial_balances=[(redemption_id, 2_000_000_000_000_000)],
+            # Fund the test users directly (faucet removed).
+            initial_balances=[(u, 2_000_000_000_000_000) for u in (ALICE, BOB, CAROL, DAVE)],
             token_symbol="ICVC",
             token_name="ICVC Token",
         ),

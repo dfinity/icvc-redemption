@@ -145,8 +145,7 @@ def test_dao_tranches_grow_pool(deployment):
     redeem_amount = 100 * 100_000_000  # 100 ICVC
     expected_payout = redeem_amount * EXCHANGE_RATE_E8S // 100_000_000
 
-    d.pic.set_sender(ALICE)
-    _ = d.pic.update_call(d.redemption, "faucet", encode([]))
+    d.pic.set_sender(ALICE)  # Alice is pre-funded with ICVC at genesis
     _ = d.pic.update_call(
         d.icvc_ledger, "icrc2_approve",
         encode(_approve_args(spender_owner_bytes=d.redemption.bytes, amount=redeem_amount + 10_000)),

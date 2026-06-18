@@ -60,15 +60,11 @@ def _redeem_args(amount: int):
 def test_redeem_rejects_when_pool_too_small(small_pool_deployment):
     d = small_pool_deployment
 
-    # Step 1: Alice claims ICVC from the faucet (one claim = 10k ICVC).
-    d.pic.set_sender(ALICE)
-    raw_faucet = d.pic.update_call(d.redemption, "faucet", encode([]))
-    assert b"cooldown" not in raw_faucet, f"faucet failed: {raw_faucet!r}"
-
-    # Step 2: Alice approves the redemption canister to pull her ICVC.
-    # Approve a bit more than we'll actually redeem to avoid hitting the
+    # Alice is pre-funded with ICVC at genesis. Approve the redemption canister
+    # to pull her ICVC — a bit more than we'll redeem to avoid hitting the
     # allowance check first.
     redeem_amount = 10_000 * 100_000_000  # 10k ICVC in e8s ~= 623 ICP needed
+    d.pic.set_sender(ALICE)
     d.pic.update_call(
         d.icvc_ledger,
         "icrc2_approve",

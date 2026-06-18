@@ -1,6 +1,6 @@
 """End-to-end happy-path redeem.
 
-Drives the full swap (faucet → approve → redeem) through PocketIC and
+Drives the full swap (approve → redeem) through PocketIC and
 verifies the holder's ICP balance lands at exactly `icvc_amount * rate`.
 This isn't closing a documented gap (the bash suite already covers
 happy-path redeem), but it's a regression guard for the harness itself:
@@ -76,12 +76,8 @@ def test_redeem_happy_path(deployment):
     icvc_amount = 100 * 100_000_000  # 100 ICVC in e8s
     expected_icp_payout = icvc_amount * EXCHANGE_RATE_E8S // 100_000_000
 
-    # Step 1: Alice faucets ICVC.
+    # Step 1: Alice approves the redemption canister (she's pre-funded with ICVC).
     d.pic.set_sender(ALICE)
-    raw_faucet = d.pic.update_call(d.redemption, "faucet", encode([]))
-    assert b"cooldown" not in raw_faucet, f"faucet rejected: {raw_faucet!r}"
-
-    # Step 2: Alice approves the redemption canister.
     raw_approve = d.pic.update_call(
         d.icvc_ledger, "icrc2_approve",
         encode(_approve_args(spender_owner_bytes=d.redemption.bytes, amount=icvc_amount + 10_000)),
