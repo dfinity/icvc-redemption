@@ -554,31 +554,6 @@ async function refreshWallet() {
   }
 }
 
-window.handleFaucet = async function() {
-  if (!redemption) return;
-  const btn = $("btn-faucet");
-  btn.innerHTML = '<span class="spinner"></span>Minting...';
-  btn.disabled = true;
-  hideMsg("faucet-msg");
-
-  try {
-    const result = await redemption.faucet();
-    if ("ok" in result) {
-      playKaChing();
-      showMsg("faucet-msg", "Received 10,000 ICVC!", false);
-      await refreshBalances();
-      $("wallet-icvc").textContent = e8sToDisplay(balances.icvc, 2);
-    } else {
-      showMsg("faucet-msg", result.err, true);
-    }
-  } catch (err) {
-    showMsg("faucet-msg", err.message || "Faucet failed", true);
-  } finally {
-    btn.textContent = "Get ICVC";
-    btn.disabled = false;
-  }
-};
-
 // ============================================================
 // Sound
 // ============================================================

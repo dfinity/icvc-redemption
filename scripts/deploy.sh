@@ -285,9 +285,9 @@ if [[ "$DO_LEDGERS" -eq 1 ]]; then
       token_symbol = \"ICVC\";
       token_name = \"ICVC Token\";
       metadata = vec {};
-      initial_balances = vec {
-          record { record { owner = principal \"$REDEMPTION_ID\"; subaccount = null }; 2_000_000_000_000_000 : nat };
-      };
+      // No faucet reserve (faucet removed): the local ICVC ledger starts empty;
+      // tests mint ICVC to users from the minting account as needed.
+      initial_balances = vec {};
       feature_flags = opt record { icrc2 = true };
       maximum_number_of_accounts = null;
       accounts_overflow_trim_quantity = null;
@@ -408,11 +408,8 @@ fi
 # ---- Step 8: balance sanity checks ----------------------------------------
 
 echo ""
-echo "--- Verifying ICP balance of redemption canister ---"
+echo "--- Verifying ICP balance of redemption canister (payout pool) ---"
 icp_call icp_ledger icrc1_balance_of "(record { owner = principal \"$REDEMPTION_ID\"; subaccount = null })" --query
-echo ""
-echo "--- Verifying ICVC balance of redemption canister (faucet supply) ---"
-icp_call icvc_ledger icrc1_balance_of "(record { owner = principal \"$REDEMPTION_ID\"; subaccount = null })" --query
 
 # ---- Step 9: generate frontend config, then deploy via the asset recipe ----
 #

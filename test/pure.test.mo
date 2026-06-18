@@ -120,33 +120,6 @@ test("memo: large id still encodes", func() {
 });
 
 // ============================================================================
-// cooldownRemainingSeconds
-// ============================================================================
-
-test("cooldown: zero elapsed -> full window remains", func() {
-    let cooldown : Int = 60 * 1_000_000_000;
-    assert Pure.cooldownRemainingSeconds(0, cooldown) == 60;
-});
-
-test("cooldown: elapsed equal to window -> zero remaining", func() {
-    let cooldown : Int = 60 * 1_000_000_000;
-    assert Pure.cooldownRemainingSeconds(cooldown, cooldown) == 0;
-});
-
-test("cooldown: ceiling rounding so we never report wait-0s mid-cooldown", func() {
-    let cooldown : Int = 60 * 1_000_000_000;
-    // 59.5 seconds elapsed -> 0.5 remaining, rounded up to 1s
-    let almost = cooldown - 500_000_000;  // 0.5 s left
-    assert Pure.cooldownRemainingSeconds(almost, cooldown) == 1;
-});
-
-test("cooldown: elapsed past the window -> zero (no negatives)", func() {
-    let cooldown : Int = 60 * 1_000_000_000;
-    let past = cooldown + 1_000_000_000;
-    assert Pure.cooldownRemainingSeconds(past, cooldown) == 0;
-});
-
-// ============================================================================
 // intToNat64
 // ============================================================================
 
