@@ -17,31 +17,32 @@ this commit's source ──(deterministic build)──▶ wasm ──(sha256)─
 If the rebuilt hash equals the committed hash **and** the on-chain
 `module_hash`, then the live canister provably runs this source.
 
-## Current mainnet deployment status
+## Verifying the live deployment
 
-> **⚠️ A fix is committed but not yet deployed.** The committed reproducible
-> hash (`redemption.wasm.sha256`, what `Dockerfile.build` / the
-> `reproducible-build` CI job produce) is **`0ede0a2c…`** — source including the
-> `sweepBurn`/`forceBurn` TOCTOU fix. The **live** mainnet redemption canister
-> (`yofbu-hiaaa-aaaae-agaeq-cai`) still runs the previous build
-> **`491dc324…`**. So a rebuild will *not* match the on-chain hash until the
-> next redeploy:
+> This doc deliberately does **not** hardcode the current hash — a copied value
+> goes stale on every upgrade and would mislead. There are two self-maintaining
+> sources of truth, and verification is just comparing them (both must match):
 >
-> ```
+> - **Committed — what this commit builds to:** [`redemption.wasm.sha256`](./redemption.wasm.sha256).
+>   It changes in the *same commit* as any source change, and the
+>   `reproducible-build` CI job asserts the build reproduces it.
+> - **Live — what's actually running:** the canister's on-chain `module_hash`,
+>   read from the network.
+>
+> ```bash
 > docker build --platform=linux/amd64 -f Dockerfile.build -t b .
 > docker run --rm --platform=linux/amd64 -v "$PWD:/out" b cp /work/redemption.wasm /out/redemption.wasm
-> sha256sum redemption.wasm                                   # 0ede0a2c…  (committed source)
-> dfx canister info yofbu-hiaaa-aaaae-agaeq-cai --network ic  # Module hash: 0x491dc324…  (still live)
+> sha256sum redemption.wasm                                   # must equal redemption.wasm.sha256
+> dfx canister info yofbu-hiaaa-aaaae-agaeq-cai --network ic  # "Module hash: 0x…" must equal the above
 > ```
 >
-> This `0ede0a2c… (source) ≠ 491dc324… (live)` gap is expected and re-aligns on
-> the next `scripts/deploy.sh -e ic`, which builds via `Dockerfile.build` and
-> hash-gates against `redemption.wasm.sha256` before install.
->
-> History of on-chain hashes: `eb1fedc3…` (original macOS arm64 build, not
-> Linux-reproducible) → `491dc324…` (re-deployed from the Linux build to make it
-> verifiable; **current live**) → `0ede0a2c…` (TOCTOU fix; committed, awaiting
-> deploy).
+> **When source and live legitimately differ:** in the window between merging a
+> code change and running the next `scripts/deploy.sh -e ic`, the committed hash
+> (and a fresh rebuild) is *ahead* of the on-chain `module_hash`. That gap is
+> expected — not tampering. The deploy hash-gates against `redemption.wasm.sha256`
+> before install, so an upgrade re-aligns them. The red flags are the opposite: a
+> mismatch with **no** pending source change, or a **same-platform** rebuild that
+> doesn't match `redemption.wasm.sha256`.
 
 > Scope: this covers the **redemption** canister, the only one whose source
 > lives in this repo. The ledger, asset, and Internet Identity canisters ship
@@ -148,16 +149,16 @@ catch.
 ## Residual caveats
 
 - **Determinism is per-platform.** `moc` is deterministic for a fixed platform,
-  but the `moc` binary itself differs across OS/arch (macOS vs Linux produce
-  different wasm from identical source — confirmed: macOS gave
-  `eb1fedc3…`, Linux x86_64 gives `491dc324…`). Always verify on the canonical
-  platform (Linux x86_64 / `Dockerfile.build`). A cross-platform mismatch is
-  expected and is **not** evidence of tampering; a *same-platform* mismatch is.
-- **`Dockerfile.build` pins the base image by tag, not digest.** For a fully
-  hermetic build, pin `FROM node:...@sha256:<digest>` (noted inline in the
-  Dockerfile). A moving tag changes the surrounding libc/coreutils, not `moc`,
-  so it is very unlikely to affect the wasm — but digest-pinning removes the
-  last variable.
+  but the `moc` binary itself differs across OS/arch — macOS and Linux x86_64
+  produce *different* wasm from identical source (observed in this project's
+  history). Always verify on the canonical platform (Linux x86_64 /
+  `Dockerfile.build`). A cross-platform mismatch is expected and is **not**
+  evidence of tampering; a *same-platform* mismatch is.
+- **`Dockerfile.build` pins the base image by immutable `@sha256` digest**, so a
+  retagged or compromised upstream `node` image can't change the build
+  environment (or run code at build time). Refresh it for a base-image security
+  update via the two commands in the Dockerfile header, then re-run
+  `verify-wasm.sh --write` on Linux.
 - This verifies the **code** (module hash), not the canister's stable state or
   its controller set. Check controllers separately via the same
   `dfx canister info` output.
