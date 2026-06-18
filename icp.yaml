@@ -88,3 +88,15 @@ environments:
       - icp_ledger
       - redemption
       - frontend
+
+  # Real-value mainnet. Same `ic` network, but a SEPARATE environment so its
+  # canister ids live in .icp/data/mappings/prod.ids.json and never collide with
+  # the play `ic` deployment above. Only OUR canisters are listed: the ICVC +
+  # ICP ledgers are the real, externally-owned tokens (ids in canister_ids.json
+  # under the `prod` key, seeded into the mapping by scripts/deploy.sh) and are
+  # never built or deployed here.
+  - name: prod
+    network: ic
+    canisters:
+      - redemption
+      - frontend

@@ -19,14 +19,7 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     // ====================================================================
     // Constants
     // ====================================================================
-    transient let FAUCET_AMOUNT : Nat = 10_000 * 100_000_000;   // 10,000 ICVC (8 decimals)
     transient let MIN_REDEMPTION : Nat = 10 * 100_000_000;      // 10 ICVC minimum (~0.62 ICP)
-    /// Faucet hands out the play-only ICVC token, never real value. The
-    /// cooldown is UX defence (prevents accidental double-faucet from the
-    /// same principal) rather than a security control: an attacker with
-    /// many principals can trivially bypass it. 10s is enough to suppress
-    /// double-clicks without being annoying to legitimate testers.
-    transient let FAUCET_COOLDOWN_NS : Int = 10 * 1_000_000_000;
     transient let REDEEM_LOCK_TTL_NS : Int = 60 * 1_000_000_000;
 
     // ====================================================================
@@ -39,16 +32,22 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     // upgrade (visible on-chain via the new module hash) — there is no runtime
     // setter, preserving the H2 immutability property. See `fairValueRate()`.
     //
-    // Snapshot pulled 2026-06-02 (nanoseconds since epoch below):
+    // Snapshot pulled 2026-06-18 COB (nanoseconds since epoch below):
     //   ICVC total supply  : icrc1_total_supply on ICVC ledger m6xut-mqaaa-aaaaq-aadua-cai
-    //   Treasury ICP       : icrc1_balance_of(governance ntzq5-…) on ICP ledger
-    //   Treasury nICP      : icrc1_balance_of(governance ntzq5-…) on nICP ledger buwm7-…
+    //   Treasury ICP       : icrc1_balance_of(governance ntzq5-…) on ICP ledger ryjl3-…
+    //   Treasury nICP      : icrc1_balance_of(governance ntzq5-…) on nICP ledger buwm7-7yaaa-aaaar-qagva-cai
     //   nICP per ICP (e8s) : get_info.exchange_rate on WaterNeuron tsbvt-pyaaa-aaaar-qafva-cai
-    transient let ICVC_TOTAL_SUPPLY_E8S : Nat = 1_999_998_744_500_000;
+    //
+    // Update vs the prior 2026-06-02 snapshot: treasury ICP and nICP are
+    // unchanged, and ICVC total supply moved by ~0.0009 ICVC (rounding noise).
+    // The only material change is the WaterNeuron rate (79_545_698 → 79_295_072).
+    // The derived redemption rate therefore barely moves:
+    //   5_753_022 → 5_758_856 e8s  (+0.10%)  =  0.05753022 → 0.05758856 ICP per ICVC.
+    transient let ICVC_TOTAL_SUPPLY_E8S : Nat = 1_999_998_744_410_000;
     transient let TREASURY_ICP_E8S : Nat = 78_145_768_936_670;
     transient let TREASURY_NICP_E8S : Nat = 29_363_979_466_056;
-    transient let NICP_PER_ICP_E8S : Nat = 79_545_698;
-    transient let FAIR_VALUE_INPUTS_RECORDED_AT_NS : Int = 1_780_358_400_000_000_000;
+    transient let NICP_PER_ICP_E8S : Nat = 79_295_072;
+    transient let FAIR_VALUE_INPUTS_RECORDED_AT_NS : Int = 1_781_740_800_000_000_000; // 2026-06-18 00:00 UTC
 
     /// Derive the redemption rate (ICP e8s per 1 ICVC) from the fair-value
     /// backing constants above. Used to initialise `exchange_rate_e8s` on
@@ -105,8 +104,8 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     // pull time — because burning is irreversible and the canister has no
     // minting authority to undo it; doing it after the ICP send means a failed
     // swap is still refundable (the ICVC is still in the canister). Burning the
-    // exact redeemed `amount` (not the raw balance) also leaves any faucet
-    // reserve untouched.
+    // exact redeemed `amount` (not the raw balance) is also robust to any other
+    // ICVC the canister might hold.
     var totalIcvcBurned : Nat = 0;
     // Per-redemption burns that did not confirm inline: (redemptionId, amount,
     // dedup created_at). `sweepBurn` retries each with the SAME dedup tuple, so
@@ -122,7 +121,6 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     // Persisted state (stable backing for Buffer / HashMap collections)
     // ====================================================================
     var stableRedemptions : [(Nat, Types.RedemptionRecord)] = [];
-    var stableFaucetClaims : [(Principal, Int)] = [];
     /// Saga journal stable backing. The dedup `created_at_time` lives inside
     /// each entry (`icvc_dedup_created_at`). The legacy `dedupKeys` parallel
     /// map and `stableFailedRefunds` buffer were folded into here by
@@ -133,7 +131,6 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     // Runtime collections (transient, restored from stable in postupgrade)
     // ====================================================================
     transient let redemptions = Buffer.Buffer<Types.RedemptionRecord>(0);
-    transient let faucetClaims = HashMap.HashMap<Principal, Int>(16, Principal.equal, Principal.hash);
     /// Saga journal: entries written before the first ledger-mutating await,
     /// updated as the flow progresses, removed on clean completion. A trap
     /// or upgrade leaves entries here so admin (or the user via retryRefund)
@@ -162,13 +159,13 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
         arg : Blob;
         msg : {
             #addAdmin : () -> (newAdmin : Principal);
-            #faucet : () -> ();
             #forceCloseInFlight : () -> (id : Nat);
             #forceRefund : () -> (id : Nat);
             #getDedupKey : () -> (id : Nat);
             #getExchangeRate : () -> ();
             #getFairValueInputs : () -> ();
             #getInFlight : () -> ();
+            #getLedgers : () -> ();
             #getPendingBurns : () -> ();
             #getMyInFlight : () -> ();
             #getRedemptionHistory : () -> (offset : Nat, limit : Nat);
@@ -195,7 +192,6 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
         // `getStats` is anonymous-readable (the frontend depends on it).
         switch (msg) {
             case (#redeem _) false;
-            case (#faucet _) false;
             case (#retryRefund _) false;
             case (#sweepBurn _) false;
             case (#forceBurn _) false;
@@ -215,7 +211,6 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
             redemptions.size(),
             func(i) = (i, redemptions.get(i))
         );
-        stableFaucetClaims := Iter.toArray(faucetClaims.entries());
         stableInFlight := Buffer.toArray(inFlight);
         // pendingRedemptions is intentionally not persisted: in-flight locks
         // are meaningless after an upgrade drains messages.
@@ -225,14 +220,10 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
         for ((_, r) in stableRedemptions.vals()) {
             redemptions.add(r);
         };
-        for ((k, v) in stableFaucetClaims.vals()) {
-            faucetClaims.put(k, v);
-        };
         for (entry in stableInFlight.vals()) {
             inFlight.add(entry);
         };
         stableRedemptions := [];
-        stableFaucetClaims := [];
         stableInFlight := [];
         // Recompute the rate from the (possibly bumped) backing constants. The
         // persisted value is intentionally discarded: the constants in this
@@ -791,7 +782,7 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     ///
     /// DANGER: a fresh timestamp means the ledger's dedup will NOT catch a burn
     /// that already committed, so this can DOUBLE-burn (destroying more ICVC than
-    /// was redeemed, eating into any faucet reserve). The admin MUST first
+    /// was redeemed, beyond what this redemption pulled). The admin MUST first
     /// confirm on the ICVC ledger (memo `burn-<id>`) that the original burn never
     /// settled. Returns the total burned this call; entries that still fail stay
     /// queued. See RECOVERY.md.
@@ -966,57 +957,6 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
         Array.tabulate<Types.RedemptionLogEntry>(end - offset, func(i) = sorted[offset + i]);
     };
 
-    /// Faucet: get test ICVC tokens (10s cooldown per principal)
-    public shared ({ caller }) func faucet() : async Result.Result<Nat, Text> {
-        if (Principal.isAnonymous(caller)) return #err("Anonymous callers cannot use the faucet");
-        // The faucet is a play-deployment affordance and is removed wholesale
-        // before any real-value deployment (see TODO.md go-live checklist).
-        // Honour the global pause: when an admin halts trading we should also
-        // stop minting new test tokens, since fresh tokens could otherwise be
-        // used to exploit whatever issue caused the pause.
-        if (paused) return #err("Canister is paused");
-
-        let now = Time.now();
-        let previousClaim = faucetClaims.get(caller);
-        switch (previousClaim) {
-            case (?lastClaim) {
-                let elapsed = now - lastClaim;
-                if (elapsed < FAUCET_COOLDOWN_NS) {
-                    let remainingS = (FAUCET_COOLDOWN_NS - elapsed + 999_999_999) / 1_000_000_000;
-                    return #err("Faucet cooldown: wait " # Int.toText(remainingS) # "s");
-                };
-            };
-            case null {};
-        };
-
-        // Reserve the slot before the await so concurrent calls from the same
-        // principal cannot bypass the cooldown by interleaving.
-        faucetClaims.put(caller, now);
-
-        let result = await icvc_ledger.icrc1_transfer({
-            from_subaccount = null;
-            to = callerAccount(caller);
-            amount = FAUCET_AMOUNT;
-            fee = null;
-            memo = null;
-            created_at_time = null;
-        });
-
-        switch (result) {
-            case (#Ok(txId)) {
-                #ok(txId);
-            };
-            case (#Err(err)) {
-                // Restore previous claim state so the user can retry without waiting.
-                switch (previousClaim) {
-                    case (?prev) { faucetClaims.put(caller, prev); };
-                    case null { faucetClaims.delete(caller); };
-                };
-                #err("Transfer failed: " # debug_show(err));
-            };
-        };
-    };
-
     /// Get the current exchange rate
     public query func getExchangeRate() : async Nat {
         exchange_rate_e8s;
@@ -1037,6 +977,21 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
             backing_icp_e8s = TREASURY_ICP_E8S + nicp_as_icp_e8s;
             inputs_recorded_at = FAIR_VALUE_INPUTS_RECORDED_AT_NS;
             exchange_rate_e8s = exchange_rate_e8s;
+        };
+    };
+
+    /// Expose the ledger canisters this redemption canister is wired to (set at
+    /// install via the init args). Anonymous-readable, like getStats: the
+    /// reproducible wasm hash proves the *code*, but the ledger ids arrive as
+    /// install args and aren't in the hash — so this getter lets anyone confirm
+    /// a deployment talks to the intended ICVC + ICP ledgers and nothing else.
+    public query func getLedgers() : async {
+        icvc_ledger : Principal;
+        icp_ledger : Principal;
+    } {
+        {
+            icvc_ledger = Principal.fromActor(icvc_ledger);
+            icp_ledger = Principal.fromActor(icp_ledger);
         };
     };
 

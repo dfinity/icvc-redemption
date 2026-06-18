@@ -56,13 +56,6 @@ module {
         Text.encodeUtf8("redemption-" # Nat.toText(id));
     };
 
-    /// Format the remaining-seconds portion of a faucet cooldown error.
-    /// Ceiling division so we never report "wait 0s".
-    public func cooldownRemainingSeconds(elapsedNs : Int, cooldownNs : Int) : Int {
-        if (elapsedNs >= cooldownNs) return 0;
-        (cooldownNs - elapsedNs + 999_999_999) / 1_000_000_000;
-    };
-
     /// Convert a Time.now() value to the Nat64 expected by ICRC's
     /// created_at_time. The actor uses this; tests should pass a fixed Int.
     public func intToNat64(t : Int) : Nat64 {

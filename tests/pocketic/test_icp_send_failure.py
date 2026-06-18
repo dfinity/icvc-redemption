@@ -62,10 +62,9 @@ def _nat_args(n: int):
     return [{"type": Types.Nat, "value": n}]
 
 
-def _faucet_and_approve(d, amount: int):
+def _approve(d, amount: int):
+    # Alice is pre-funded with ICVC at genesis; just approve the canister's pull.
     d.pic.set_sender(ALICE)
-    raw_faucet = d.pic.update_call(d.redemption, "faucet", encode([]))
-    assert b"cooldown" not in raw_faucet, f"faucet rejected: {raw_faucet!r}"
     d.pic.update_call(
         d.icvc_ledger, "icrc2_approve",
         encode(_approve_args(spender_owner_bytes=d.redemption.bytes, amount=amount + 10_000)),
@@ -84,7 +83,7 @@ def test_icp_send_trap_leaves_pending_and_retry_refused(
         pic, redemption_wasm, icrc1_wasm, mock_icp_wasm, fail_mode=1,
     )
     amount = 100 * 100_000_000  # 100 ICVC
-    _faucet_and_approve(d, amount)
+    _approve(d, amount)
 
     # The mock ICP ledger traps on the payout AFTER the ICVC pull committed, so
     # the redeem call rejects and the saga entry is left in #IcpSendPending.
@@ -129,7 +128,7 @@ def test_icp_send_err_triggers_inline_refund(
         pic, redemption_wasm, icrc1_wasm, mock_icp_wasm, fail_mode=0,
     )
     amount = 100 * 100_000_000  # 100 ICVC
-    _faucet_and_approve(d, amount)
+    _approve(d, amount)
 
     # Clean ICP failure (#Err): redeem does the in-line refund via the real ICVC
     # ledger, returns #IcpTransferFailed, and clears the saga entry.

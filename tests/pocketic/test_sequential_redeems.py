@@ -15,7 +15,7 @@ from conftest import ALICE
 HASH_OK = 24860
 HASH_ERR = 5048165
 
-EXCHANGE_RATE_E8S = 5_753_022  # fair-value derived rate (see #27)
+EXCHANGE_RATE_E8S = 5_758_856  # fair-value derived rate (see #27)
 ICP_FEE_E8S = 10_000
 
 # getStats record field hashes (cand_hash of each name)
@@ -82,12 +82,11 @@ def _get_stats(deployment) -> dict:
 def test_sequential_redeems_accounting(deployment):
     d = deployment
     redeem_each = 100 * 100_000_000  # 100 ICVC per redeem
-    expected_payout = redeem_each * EXCHANGE_RATE_E8S // 100_000_000  # 622_924_400 e8s
+    expected_payout = redeem_each * EXCHANGE_RATE_E8S // 100_000_000  # 575_885_600 e8s
     n_redeems = 5
 
-    # Alice faucets ICVC + approves enough for all n redeems.
+    # Alice is pre-funded with ICVC; approve enough for all n redeems.
     d.pic.set_sender(ALICE)
-    _ = d.pic.update_call(d.redemption, "faucet", encode([]))
     _ = d.pic.update_call(
         d.icvc_ledger, "icrc2_approve",
         encode(_approve_args(

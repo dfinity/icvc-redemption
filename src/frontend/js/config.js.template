@@ -19,6 +19,6 @@ export const CONFIG = {
   // where principals are scoped to the local frontend origin by design.
   // Requires the target origin to list this dapp in its /.well-known/ii-alternative-origins.
   DERIVATION_ORIGIN:  "__DERIVATION_ORIGIN__",
-  EXCHANGE_RATE:      5753022n,  // e8s fallback shown before getStats loads; live value = getStats().exchange_rate_e8s (fair-value derived)
+  EXCHANGE_RATE:      5758856n,  // e8s fallback shown before getStats loads; live value = getStats().exchange_rate_e8s (fair-value derived)
 };
 export const E8S = 100000000n;

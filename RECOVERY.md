@@ -41,7 +41,7 @@ This is in-memory only — upgrades clear it, which is correct (in-flight messag
 
 ### Ingress message inspection
 
-`system func inspect(...)` (the `canister_inspect_message` hook) runs on a single replica before an ingress update is accepted, so it can reject a call **before** it consumes cycles or goes through consensus. It drops the *update* methods that the canister body would reject for an **anonymous** caller anyway — `redeem`, `faucet`, `retryRefund`, `sweepBurn`, `forceCloseInFlight`, `forceRefund`, `pause`, `unpause`, `addAdmin`, `removeAdmin`. Queries pass through unfiltered so their bodies can still return their normal diagnostic error variants (`#NotAuthorized`, etc.), and `getStats` stays anonymous-readable because the frontend depends on it.
+`system func inspect(...)` (the `canister_inspect_message` hook) runs on a single replica before an ingress update is accepted, so it can reject a call **before** it consumes cycles or goes through consensus. It drops the *update* methods that the canister body would reject for an **anonymous** caller anyway — `redeem`, `retryRefund`, `sweepBurn`, `forceCloseInFlight`, `forceRefund`, `pause`, `unpause`, `addAdmin`, `removeAdmin`. Queries pass through unfiltered so their bodies can still return their normal diagnostic error variants (`#NotAuthorized`, etc.), and `getStats` stays anonymous-readable because the frontend depends on it.
 
 This is a spam/cost guard, not the authorization boundary — every method still enforces its own auth in the body. When adding a new update method, add it to **both** the `inspect` message variant and (if it should reject anonymous callers) the anonymous-drop switch, or it will be reachable by anonymous ingress.
 

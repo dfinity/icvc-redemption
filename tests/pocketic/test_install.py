@@ -2,7 +2,7 @@
 
 Confirms the harness can install the redemption canister and that a
 public query call returns. Does NOT install the ICVC/ICP ledgers, so
-deeper tests (faucet, redeem) need additional fixtures (see README).
+deeper tests (redeem) need additional fixtures (see README).
 """
 
 from ic.candid import encode, Types

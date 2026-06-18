@@ -121,6 +121,20 @@ approve_icvc() {
     fi
 }
 
+# Transfer ICVC from the deployer (funded with ICVC at deploy genesis) to a
+# principal. Replaces the removed faucet for giving a second identity (e.g.
+# test-admin) spendable ICVC.
+give_icvc() {  # $1 = recipient principal, $2 = amount (e8s)
+    echo y | icp canister call -e "$ENV" icvc_ledger icrc1_transfer "(record {
+      from_subaccount = null;
+      to = record { owner = principal \"$1\"; subaccount = null };
+      amount = $2 : nat;
+      fee = null;
+      memo = null;
+      created_at_time = null;
+    })" >/dev/null 2>&1 || true
+}
+
 parse_nat() {
     echo "$1" | tr -dc '0-9'
 }
@@ -143,9 +157,8 @@ TEST_ADMIN_PRINCIPAL=$(icp identity principal --identity test-admin)
 # identities start with zero ICP and cycles).
 if [[ "$(icp token balance -e "$ENV" --identity test-admin 2>&1 | tr -dc '0-9.')" == "0.00000000" ]] \
    || [[ "$(icp token balance -e "$ENV" --identity test-admin 2>&1 | grep -c '^Balance: 0')" -gt 0 ]]; then
-    # Transfer 10 ICP from the deployer so test-admin can pay ledger fees if
-    # asked to (the integration suite generally has the deployer fund it via
-    # the faucet, but the helper exists for completeness).
+    # Transfer 10 ICP from the deployer so test-admin can pay ledger fees.
+    # (ICVC for test-admin is provided by `give_icvc` in the cases that need it.)
     echo y | icp token transfer 10 "$TEST_ADMIN_PRINCIPAL" -e "$ENV" >/dev/null 2>&1 || true
 fi
 
@@ -155,19 +168,6 @@ case_listAdmins_includes_deployer() {
     local out
     out=$(icp_call redemption listAdmins)
     expect_contains "deployer in admin list" "$out" "$DEPLOYER"
-}
-
-case_faucet_then_cooldown() {
-    # We can't reset faucet state between runs without a fresh deploy; this
-    # case assumes the cooldown may or may not be active. We assert that the
-    # second call returns either ok or a cooldown error (not a crash).
-    icp_call redemption faucet >/dev/null 2>&1 || true
-    local out
-    out=$(icp_call redemption faucet)
-    if [[ "$out" == *"Faucet cooldown"* || "$out" == *"variant { ok"* ]]; then
-        return 0
-    fi
-    expect_contains "faucet returned cooldown or ok" "$out" "Faucet cooldown"
 }
 
 case_anonymous_redeem_rejected() {
@@ -253,25 +253,6 @@ case_forceCloseInFlight_admin_only() {
 # tx inspection, upgrade preservation, lock release on error.
 # ============================================================================
 
-case_faucet_delivers_icvc() {
-    local before after expected_delta floor
-    before=$(balance_of icvc_ledger "$TEST_ADMIN_PRINCIPAL")
-    icp_call_id test-admin redemption faucet '()' >/dev/null 2>&1 || true
-    after=$(balance_of icvc_ledger "$TEST_ADMIN_PRINCIPAL")
-    expected_delta=1000000000000  # 10_000 ICVC e8s (faucet amount)
-    # "Already faucetted" tolerance: balances drift downward by fees as later
-    # tests do redeems. Treat >= 90% of expected_delta as already-faucetted.
-    floor=900000000000
-    if [[ $((after - before)) -ge $expected_delta ]]; then
-        return 0
-    fi
-    if [[ "$before" -ge "$floor" ]]; then
-        return 0
-    fi
-    printf "    ${RED}faucet delta too small: before=%s after=%s${RESET}\n" "$before" "$after"
-    return 1
-}
-
 case_redeem_delivers_icp() {
     # ICRC transfer fees come out of the sender's balance (the canister),
     # so the recipient receives the full payout amount.
@@ -280,7 +261,7 @@ case_redeem_delivers_icp() {
     icp_before=$(balance_of icp_ledger "$DEPLOYER")
     icp_call redemption redeem '(1_000_000_000 : nat)' >/dev/null
     icp_after=$(balance_of icp_ledger "$DEPLOYER")
-    icp_payout=57530220             # 1_000_000_000 * 5_753_022 / 1e8 (fair-value rate)
+    icp_payout=57588560             # 1_000_000_000 * 5_758_856 / 1e8 (fair-value rate)
     local delta=$((icp_after - icp_before))
     if [[ "$delta" -eq "$icp_payout" ]]; then
         return 0
@@ -293,8 +274,8 @@ case_redeem_burns_icvc() {
     # Redeemed ICVC is burned (sent to the minting account) as the final step.
     # Strong, feature-specific checks: total_icvc_burned rises by exactly the
     # redeemed amount, and the canister's ICVC balance is unchanged (it pulled
-    # `amount` then burned `amount`, so the faucet reserve is untouched). Supply
-    # also drops by at least `amount` (the burn; plus the burned transfer fee).
+    # `amount` then burned `amount`). Supply also drops by at least `amount`
+    # (the burn; plus the burned transfer fee).
     approve_icvc 10_000_000_000
     local amount=1000000000
     local supply_before burned_before canbal_before
@@ -353,15 +334,6 @@ case_paused_redeem_rejected() {
     expect_contains "redeem while paused -> #Paused" "$out" "Paused"
 }
 
-case_paused_faucet_rejected() {
-    # Pause halts ALL trading: redeem AND the test-token faucet. retryRefund
-    # stays available so users can recover stuck redemptions during a halt.
-    icp_call redemption pause >/dev/null
-    local out
-    out=$(icp_call_id test-admin redemption faucet '()')
-    icp_call redemption unpause >/dev/null
-    expect_contains "faucet while paused" "$out" "Canister is paused"
-}
 
 case_pause_unpause_cycle_resumes_redeem() {
     # Same idea as the redeem-paused test, but explicit about the resume.
@@ -391,12 +363,12 @@ case_anonymous_public_queries_work() {
     rate=$(icp_call_id anonymous redemption getExchangeRate '()' --query)
     # getStats responds as a record. Anonymous can't fetch candid so the
     # field names come through hashed; spot-check by looking for the
-    # exchange_rate_e8s literal (5_753_022, the fair-value-derived rate),
+    # exchange_rate_e8s literal (5_758_856, the fair-value-derived rate),
     # which is a Nat constant that survives intact, plus the record envelope
     # so we know the response was a struct rather than an error.
-    if [[ "$stats" == *"5_753_022"* && "$stats" == *"record"* ]] \
+    if [[ "$stats" == *"5_758_856"* && "$stats" == *"record"* ]] \
        && [[ "$history" == *"record"* || "$history" == *"vec {}"* ]] \
-       && [[ "$rate" == *"5_753_022"* ]]; then
+       && [[ "$rate" == *"5_758_856"* ]]; then
         return 0
     fi
     printf "    ${RED}anonymous read failed somewhere${RESET}\n"
@@ -412,10 +384,10 @@ case_getExchangeRate_is_a_query() {
     # someone changes it to an update method, this test fails.
     local out
     out=$(icp canister call -e local redemption getExchangeRate '()' --query 2>&1)
-    if [[ "$out" == *"5_753_022"* ]]; then
+    if [[ "$out" == *"5_758_856"* ]]; then
         return 0
     fi
-    expect_contains "getExchangeRate returns the derived rate as a query" "$out" "5_753_022"
+    expect_contains "getExchangeRate returns the derived rate as a query" "$out" "5_758_856"
 }
 
 case_getMyInFlight_filters_caller() {
@@ -459,25 +431,39 @@ case_forceCloseInFlight_admin_happy_path() {
 case_getExchangeRate_matches_derived_rate() {
     local rate
     rate=$(parse_nat "$(icp_call redemption getExchangeRate)")
-    if [[ "$rate" == "5753022" ]]; then
+    if [[ "$rate" == "5758856" ]]; then
         return 0
     fi
-    printf "    ${RED}exchange rate not the derived 5_753_022: got %s${RESET}\n" "$rate"
+    printf "    ${RED}exchange rate not the derived 5_758_856: got %s${RESET}\n" "$rate"
     return 1
 }
 
 case_getFairValueInputs_derives_rate() {
     # getFairValueInputs exposes the treasury-backing inputs and the derived
     # rate. Verify the snapshot constants and that the derived rate matches
-    # getExchangeRate (5_753_022). Anonymous-readable like getStats.
+    # getExchangeRate (5_758_856). Anonymous-readable like getStats.
     local out
     out=$(icp_call_id anonymous redemption getFairValueInputs '()' --query)
-    if [[ "$out" == *"5_753_022"* ]] \
-       && [[ "$out" == *"1_999_998_744_500_000"* ]] \
-       && [[ "$out" == *"36_914_604_063_259"* ]]; then
+    if [[ "$out" == *"5_758_856"* ]] \
+       && [[ "$out" == *"1_999_998_744_410_000"* ]] \
+       && [[ "$out" == *"37_031_279_151_945"* ]]; then
         return 0
     fi
     printf "    ${RED}getFairValueInputs missing expected derived values${RESET}\n%s\n" "$out"
+    return 1
+}
+
+case_getLedgers_returns_configured_ledgers() {
+    # getLedgers exposes the ledger ids the canister was installed with (the
+    # init args), so a deployment's ledger wiring is verifiable on-chain even
+    # though the reproducible wasm hash doesn't encode it. Anonymous-readable.
+    local out
+    out=$(icp_call_id anonymous redemption getLedgers '()' --query)
+    if [[ "$out" == *"$ICVC_ID"* ]] && [[ "$out" == *"$ICP_ID"* ]]; then
+        return 0
+    fi
+    printf "    ${RED}getLedgers did not return the configured ledger ids${RESET}\n"
+    printf "    ${DIM}want icvc=%s icp=%s; got:%s${RESET}\n" "$ICVC_ID" "$ICP_ID" "$out"
     return 1
 }
 
@@ -546,7 +532,8 @@ case_removeAdmin_last_admin_lockout() {
 }
 
 case_multi_principal_parallel_both_succeed() {
-    icp_call_id test-admin redemption faucet '()' >/dev/null 2>&1 || true
+    # The deployer is funded with ICVC at genesis; hand test-admin some too.
+    give_icvc "$TEST_ADMIN_PRINCIPAL" 100000000000
     approve_icvc 10_000_000_000
     approve_icvc 10_000_000_000 test-admin
     icp_call redemption redeem '(1_000_000_000 : nat)' >/tmp/icvc_d.txt 2>&1 &
@@ -569,8 +556,8 @@ case_multi_principal_parallel_both_succeed() {
 case_ledger_tx_has_memo_and_created_at_time() {
     # Do a fresh approve+redeem, then scan the tail of the ledger log for ANY
     # transaction whose memo matches our "redemption-N" format. We don't pin
-    # to the very last tx because prior cases in this run may have left a
-    # faucet/approve tx as the most recent.
+    # to the very last tx because prior cases in this run may have left an
+    # approve tx as the most recent.
     approve_icvc 10_000_000_000
     icp_call redemption redeem '(1_000_000_000 : nat)' >/dev/null
     local log_length start
@@ -709,7 +696,6 @@ echo "Deployer:    $DEPLOYER"
 echo ""
 
 run_case "listAdmins includes deployer"          case_listAdmins_includes_deployer
-run_case "faucet cooldown returns or succeeds"   case_faucet_then_cooldown
 run_case "anonymous redeem rejected"             case_anonymous_redeem_rejected
 run_case "happy-path redeem"                     case_happy_path_redeem
 run_case "concurrent redeem -> ConcurrentRedemption" case_concurrent_redeem_rejected
@@ -717,14 +703,12 @@ run_case "getInFlight empty after success"       case_getInFlight_empty_after_ha
 run_case "getInFlight is public"                  case_getInFlight_public
 run_case "retryRefund unknown id clean error"    case_retryRefund_unknown_id_clean_error
 run_case "forceCloseInFlight admin-only"         case_forceCloseInFlight_admin_only
-run_case "faucet delivers ICVC to balance"       case_faucet_delivers_icvc
 run_case "redeem delivers ICP to balance"        case_redeem_delivers_icp
 run_case "redeem burns redeemed ICVC"            case_redeem_burns_icvc
 run_case "sweepBurn admin no-op"                 case_sweepBurn_admin_noop
 run_case "getPendingBurns is public"               case_getPendingBurns_public
 run_case "below MIN_REDEMPTION -> #BelowMinimum" case_below_minimum_redeem
 run_case "paused redeem -> #Paused"              case_paused_redeem_rejected
-run_case "paused faucet -> rejected"             case_paused_faucet_rejected
 run_case "pause/unpause cycle resumes redeem"    case_pause_unpause_cycle_resumes_redeem
 run_case "anonymous public queries work"         case_anonymous_public_queries_work
 run_case "getExchangeRate is a query"            case_getExchangeRate_is_a_query
@@ -732,6 +716,7 @@ run_case "getMyInFlight filters caller"          case_getMyInFlight_filters_call
 run_case "forceCloseInFlight admin happy path"   case_forceCloseInFlight_admin_happy_path
 run_case "getExchangeRate matches derived fair-value rate" case_getExchangeRate_matches_derived_rate
 run_case "getFairValueInputs derives the rate"   case_getFairValueInputs_derives_rate
+run_case "getLedgers returns configured ledgers" case_getLedgers_returns_configured_ledgers
 run_case "setExchangeRate method is gone (H2)"        case_setExchangeRate_method_removed
 run_case "getStats.total_icvc_redeemed increments" case_stats_total_icvc_redeemed_increments
 run_case "addAdmin happy path then removeAdmin"  case_addAdmin_happy_then_remove

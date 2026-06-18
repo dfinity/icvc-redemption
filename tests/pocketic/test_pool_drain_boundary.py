@@ -60,9 +60,8 @@ def test_redeem_drains_pool_to_zero_then_next_rejects(boundary_pool_deployment):
     d = boundary_pool_deployment
     redeem_amount = 100 * 100_000_000  # 100 ICVC matches the fixture's pool size
 
-    # Faucet + approve so Alice has ICVC and the canister has the allowance.
+    # Alice is pre-funded with ICVC; approve so the canister has the allowance.
     d.pic.set_sender(ALICE)
-    _ = d.pic.update_call(d.redemption, "faucet", encode([]))
     _ = d.pic.update_call(
         d.icvc_ledger, "icrc2_approve",
         encode(_approve_args(spender_owner_bytes=d.redemption.bytes, amount=redeem_amount * 2)),
