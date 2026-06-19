@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ICVC Redemption Canister - Deployment Script (icp-cli).
 #
-# Two environments, two very different policies:
+# Three environments, three very different policies:
 #
 #   -e local  Dev box. Every canister reinstalled fresh, Internet Identity
 #             included. No state is precious. Fresh deploys start with an
@@ -23,11 +23,20 @@ set -euo pipefail
 #             The ledger balances still survive because they're tracked on
 #             the ledger canisters, not inside the redemption canister.
 #
+#   -e prod   Real-value mainnet, SEPARATE from play `ic` (own ids in
+#             .icp/data/mappings/prod.ids.json). Creates our OWN fresh
+#             redemption + frontend canisters wired to the REAL ICVC (m6xut-…)
+#             + NNS ICP (ryjl3-…) ledgers; never touches those ledgers. First
+#             deploy installs into the empty canisters; later runs upgrade
+#             (REDEMPTION_MODE=upgrade FRONTEND_MODE=upgrade). The creates need
+#             an application subnet (PROD_SUBNET). See MIGRATIONS.md §7.
+#
 # Usage:
 #   bash scripts/deploy.sh                            # default: -e local
 #   bash scripts/deploy.sh -e local
-#   bash scripts/deploy.sh -e ic                      # safe upgrade
+#   bash scripts/deploy.sh -e ic                      # safe upgrade (play)
 #   bash scripts/deploy.sh -e ic --reinstall-redemption  # one-time schema flip
+#   bash scripts/deploy.sh -e prod                    # real-value deploy (see MIGRATIONS.md §7)
 #
 # Prerequisites for -e ic:
 #   - Your icp-cli identity must be a controller of the mainnet canisters

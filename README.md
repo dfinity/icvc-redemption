@@ -111,9 +111,10 @@ icvc-redemption/
 │
 ├── icp.yaml                   ← canister manifest (icp-cli)
 ├── mops.toml                  ← Motoko deps + toolchain pin
-├── canister_ids.json          ← mainnet ids (yofbu-…, zekdo-…, yjeha-…, zdlf2-…)
-├── ledger/                    ← pinned WASMs (ICRC-1 ledger, II, asset canister)
+├── canister_ids.json          ← mainnet ids per env: play `ic` + real-value `prod`
+├── ledger/                    ← pinned WASMs (ICRC-1 ledger, II)
 │                                  consumed via `type: pre-built` in icp.yaml
+│                                  (the asset canister is the @dfinity/asset-canister recipe, not pinned here)
 │
 ├── scripts/
 │   └── deploy.sh              ← end-to-end deploy: local | ic
