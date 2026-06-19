@@ -591,8 +591,8 @@ window.onSendTokenChange = function() {
   $("send-balance").textContent = e8sToDisplay(tok === "ICVC" ? balances.icvc : balances.icp, 4);
   // ICVC (ICRC-1) goes to a principal; ICP may also go to a 64-hex account id.
   const isIcp = tok === "ICP";
-  if ($("send-to-label")) $("send-to-label").textContent = isIcp ? "Recipient (principal or ICP account ID)" : "Recipient principal";
-  if ($("send-to")) $("send-to").placeholder = isIcp ? "principal or 64-char ICP account ID" : "recipient principal";
+  if ($("send-to-label")) $("send-to-label").textContent = isIcp ? "ICP account ID (address)" : "Recipient principal";
+  if ($("send-to")) $("send-to").placeholder = isIcp ? "64-character ICP account ID" : "recipient principal";
   updateSendButton();
 };
 
@@ -625,20 +625,16 @@ window.handleSend = async function() {
   if (!ledger) { showMsg("send-msg", "Not connected.", true); return; }
   const toText = $("send-to").value.trim();
 
-  // Resolve the destination. ICVC (ICRC-1) -> principal. ICP -> principal
-  // (ICRC-1) OR a 64-hex account identifier (legacy `transfer`).
+  // Resolve the destination. ICVC (ICRC-1) -> principal. ICP -> a 64-hex
+  // account identifier (the address format used everywhere for ICP), sent via
+  // the ledger's legacy `transfer`.
   let mode = null, toPrincipal = null, toAccount = null;
-  try { toPrincipal = Principal.fromText(toText); mode = "principal"; }
-  catch {
-    if (tok === "ICP" && /^[0-9a-fA-F]{64}$/.test(toText)) {
-      try { toAccount = accountIdFromHex(toText); mode = "accountid"; }
-      catch (e) { showMsg("send-msg", e.message, true); return; }
-    } else {
-      showMsg("send-msg", tok === "ICP"
-        ? "Enter a valid principal or 64-character ICP account ID."
-        : "Enter a valid recipient principal.", true);
-      return;
-    }
+  if (tok === "ICP") {
+    try { toAccount = accountIdFromHex(toText); mode = "accountid"; }
+    catch (e) { showMsg("send-msg", e.message, true); return; }
+  } else {
+    try { toPrincipal = Principal.fromText(toText); mode = "principal"; }
+    catch { showMsg("send-msg", "Enter a valid recipient principal.", true); return; }
   }
 
   let amt;
