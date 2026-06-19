@@ -479,19 +479,19 @@ document.addEventListener("keydown", (e) => {
 });
 
 window.confirmRedeem = async function() {
-  window.closeConfirmModal();
   const raw = $("icvc-input").value;
   if (!raw) return;
   const icvcE8s = tokenToE8s(raw);
   if (icvcE8s <= 0n) return;
 
   hideMsg("redeem-msg");
-  const btn = $("btn-redeem");
+  // Disable the confirm button immediately (guards against a double-click /
+  // double-submit) and show progress in the open modal, like the Send modal.
+  const btn = $("btn-confirm-redeem");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Approving ICVC...';
 
   try {
-    btn.innerHTML = '<span class="spinner"></span>Approving ICVC...';
-    btn.disabled = true;
-
     // Semantics: the input value (icvcE8s) is the amount that reaches the
     // canister. Two ICVC ledger fees are paid by the user on top: one for
     // approve, one absorbed by transfer_from (paid by the `from` account
@@ -518,16 +518,19 @@ window.confirmRedeem = async function() {
       throw new Error("Redeem failed: " + key + (result.err[key] !== null ? " - " + result.err[key] : ""));
     }
 
+    closeConfirmModal();
     showMsg("redeem-msg", "Redemption successful!", false);
     $("icvc-input").value = "";
     updateOutput();
     await refreshBalances();
     await refreshStats();
   } catch (err) {
+    closeConfirmModal();
     showMsg("redeem-msg", err.message || "Unknown error", true);
     await refreshBalances();
   } finally {
-    btn.textContent = "Redeem ICVC for ICP";
+    btn.textContent = "Confirm Swap";
+    btn.disabled = false;
     updateRedeemButton();
   }
 };
