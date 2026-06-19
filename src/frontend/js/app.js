@@ -29,8 +29,10 @@ let paused = false;   // mirrors the canister's server-side pause (from getStats
 function e8sToDisplay(e8s, decimals) {
   if (typeof e8s !== "bigint") e8s = BigInt(e8s);
   if (decimals !== undefined) {
+    // Always show exactly `decimals` places (so whole amounts read "60.00",
+    // not "60") — keeps balances aligned across ICVC / ICP / Send.
     return (Number(e8s) / 1e8).toLocaleString(undefined, {
-      minimumFractionDigits: 0,
+      minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     });
   }
