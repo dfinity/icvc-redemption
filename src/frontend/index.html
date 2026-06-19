@@ -197,6 +197,22 @@
   </div>
 </div>
 
+<!-- Send confirmation modal (same style as the redemption modal) -->
+<div id="send-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="send-modal-title">
+  <div class="modal">
+    <h3 id="send-modal-title">Confirm Send</h3>
+    <div class="modal-detail">
+      <div class="modal-row"><span class="label">Amount</span><span class="value" id="send-confirm-amount">—</span></div>
+      <div class="modal-row"><span class="label">To</span><span class="value" id="send-confirm-to" style="word-break:break-all;max-width:60%;text-align:right">—</span></div>
+      <div class="modal-row"><span class="label">Network fee</span><span class="value" id="send-confirm-fee">—</span></div>
+    </div>
+    <div class="modal-actions">
+      <button id="btn-cancel-send" class="btn btn-secondary" onclick="closeSendModal()">Cancel</button>
+      <button class="btn btn-primary" id="btn-confirm-send" onclick="confirmSend()">Confirm Send</button>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="./js/app.js"></script>
 </body>
 </html>

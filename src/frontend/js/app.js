@@ -617,6 +617,9 @@ window.updateSendButton = function() {
   btn.disabled = !(to.length > 0 && amountOk);
 };
 
+let pendingSend = null;          // staged by handleSend, executed by confirmSend
+let sendModalReturnFocus = null;
+
 window.handleSend = async function() {
   hideMsg("send-msg");
   const tok = $("send-token").value;
@@ -642,20 +645,43 @@ window.handleSend = async function() {
   catch { showMsg("send-msg", "Invalid amount.", true); return; }
   if (amt <= 0n) { showMsg("send-msg", "Enter an amount greater than 0.", true); return; }
 
-  const btn = $("btn-send");
+  let fee;
+  try { fee = BigInt(await ledger.icrc1_fee()); }
+  catch { showMsg("send-msg", "Could not fetch the ledger fee — try again.", true); return; }
+  if (amt + fee > bal) {
+    showMsg("send-msg", `Insufficient ${tok}: ${e8sToDisplay(amt)} + ${e8sToDisplay(fee)} fee exceeds your ${e8sToDisplay(bal)} ${tok}.`, true);
+    return;
+  }
+
+  // Stage the send and show the styled confirmation modal (same look as redeem).
+  pendingSend = { tok, ledger, amt, fee, mode, toPrincipal, toAccount };
+  $("send-confirm-amount").textContent = e8sToDisplay(amt) + " " + tok;
+  $("send-confirm-to").textContent = toText;
+  $("send-confirm-fee").textContent = e8sToDisplay(fee) + " " + tok;
+  openSendModal();
+};
+
+function openSendModal() {
+  sendModalReturnFocus = document.activeElement;
+  $("send-modal").classList.remove("hidden");
+  $("btn-cancel-send").focus();   // safer default for a fund-committing action
+}
+
+window.closeSendModal = function() {
+  $("send-modal").classList.add("hidden");
+  if (sendModalReturnFocus && typeof sendModalReturnFocus.focus === "function") sendModalReturnFocus.focus();
+  sendModalReturnFocus = null;
+};
+
+window.confirmSend = async function() {
+  if (!pendingSend) return;
+  const { tok, ledger, amt, fee, mode, toPrincipal, toAccount } = pendingSend;
+  const btn = $("btn-confirm-send");
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Sending...';
   try {
-    const fee = BigInt(await ledger.icrc1_fee());
-    if (amt + fee > bal) {
-      throw new Error(`Insufficient ${tok}: ${e8sToDisplay(amt)} + ${e8sToDisplay(fee)} fee exceeds your ${e8sToDisplay(bal)} ${tok}.`);
-    }
-    if (!window.confirm(`Send ${e8sToDisplay(amt)} ${tok} to:\n${toText}\n\nNetwork fee: ${e8sToDisplay(fee)} ${tok}. This is irreversible.`)) {
-      return;
-    }
     let block;
     if (mode === "accountid") {
-      // ICP legacy transfer to a raw account identifier.
       const res = await icpLegacy.transfer({
         to: toAccount, fee: { e8s: fee }, memo: 0n,
         from_subaccount: [], created_at_time: [], amount: { e8s: amt },
@@ -670,16 +696,25 @@ window.handleSend = async function() {
       if ("Err" in res) throw new Error("Transfer failed: " + JSON.stringify(res.Err));
       block = res.Ok.toString();
     }
+    closeSendModal();
     showMsg("send-msg", `Sent ${e8sToDisplay(amt)} ${tok} (block ${block}).`, false);
     $("send-amount").value = ""; $("send-to").value = "";
     await refreshWallet();
   } catch (err) {
+    closeSendModal();
     showMsg("send-msg", err.message || "Send failed", true);
   } finally {
-    btn.textContent = "Send";
-    updateSendButton();
+    btn.textContent = "Confirm Send";
+    btn.disabled = false;
+    pendingSend = null;
   }
 };
+
+// Send modal: Escape closes (matches the redeem modal's behaviour).
+document.addEventListener("keydown", (e) => {
+  if ($("send-modal").classList.contains("hidden")) return;
+  if (e.key === "Escape") { e.preventDefault(); closeSendModal(); }
+});
 
 // ============================================================
 // Sound
