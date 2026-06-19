@@ -45,7 +45,7 @@ COPY src/redemption ./src/redemption
 # bash with ~/.bashrc sourced so `mops toolchain bin moc` is active.
 RUN bash -c 'source ~/.bashrc && \
     MOC="$(mops toolchain bin moc)" && \
-    "$MOC" src/redemption/main.mo $(mops sources) -o /work/redemption.wasm && \
+    "$MOC" --public-metadata candid:service --public-metadata candid:args src/redemption/main.mo $(mops sources) -o /work/redemption.wasm && \
     sha256sum /work/redemption.wasm'
 
 CMD ["sha256sum", "/work/redemption.wasm"]

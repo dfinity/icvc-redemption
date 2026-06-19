@@ -29,7 +29,11 @@ canisters:
       steps:
         - type: script
           commands:
-            - $(mops toolchain bin moc) src/redemption/main.mo $(mops sources) -o "$ICP_WASM_OUTPUT_PATH"
+            # --public-metadata makes the Candid interface readable by anyone
+            # (default is `private` = controllers only), so the methods show on
+            # the IC dashboard / can be introspected by any agent. Must stay in
+            # sync with Dockerfile.build for the reproducible hash to match.
+            - $(mops toolchain bin moc) --public-metadata candid:service --public-metadata candid:args src/redemption/main.mo $(mops sources) -o "$ICP_WASM_OUTPUT_PATH"
 
   # Asset (frontend) canister via the @dfinity/asset-canister recipe. icp-cli
   # 1.0.0 removed the `assets` sync step; the recipe bundles both the asset
