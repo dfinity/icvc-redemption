@@ -20,6 +20,7 @@ let icpLedger = null;
 let redemption = null;
 let balances = { icvc: 0n, icp: 0n };
 let exchangeRate = CONFIG.EXCHANGE_RATE;
+let paused = false;   // mirrors the canister's server-side pause (from getStats)
 
 // ============================================================
 // Helpers
@@ -77,6 +78,7 @@ function timeAgo(nsTimestamp) {
 
 function updateRedeemButton() {
   const btn = $("btn-redeem");
+  if (paused) { btn.disabled = true; btn.textContent = "Redemptions paused"; return; }
   if (!userPrincipal) { btn.disabled = true; btn.textContent = "Login to redeem"; return; }
   const raw = $("icvc-input").value;
   const hasAmount = raw && !isNaN(parseFloat(raw)) && parseFloat(raw) > 0;
@@ -179,19 +181,7 @@ window.toggleRateInfo = function() {
   $("rate-info-btn").setAttribute("aria-expanded", String(!nowHidden));
 };
 
-// Operational kill-switch for sign-in (CONFIG.LOGIN_ENABLED, default enabled).
-// When false, the Login button is greyed out, a banner is shown, and
-// handleConnect is gated so nothing can trigger a login.
-function applyLoginGate() {
-  if (CONFIG.LOGIN_ENABLED) return;
-  const btn = $("btn-connect");
-  if (btn) { btn.disabled = true; btn.textContent = "Sign-in disabled"; }
-  const banner = $("login-disabled-banner");
-  if (banner) banner.classList.remove("hidden");
-}
-
 window.handleConnect = async function() {
-  if (!CONFIG.LOGIN_ENABLED) return;
   if (!authClient) return;
   const loginOptions = {
     identityProvider: CONFIG.II_PROVIDER,
@@ -291,6 +281,11 @@ async function refreshStats() {
     $("stat-count").textContent = s.total_redemptions.toString();
     $("stat-status").textContent = s.paused ? "Paused" : "Active";
     $("stat-status").style.color = s.paused ? "#fca5a5" : "#86efac";
+    // Surface the real, server-side gate: when the canister is paused, show the
+    // banner and disable redeeming (redeem would return #Paused anyway).
+    paused = s.paused;
+    $("paused-banner")?.classList.toggle("hidden", !paused);
+    updateRedeemButton();
     $("exchange-rate").textContent = (Number(exchangeRate) / 1e8).toFixed(8);
 
     // Exchange-rate derivation panel (toggled by the ℹ button next to the rate).
@@ -586,5 +581,4 @@ function playKaChing() {
 // Init
 // ============================================================
 await initAuth();
-applyLoginGate();
 await refreshStats();
