@@ -4,7 +4,7 @@
 
 Canister for winding down the **ICVC DAO** on the Internet Computer. Token holders swap ICVC for ICP at a **fair-value rate derived from the DAO treasury's backing**: `(treasury ICP + treasury nICP valued in ICP) ÷ total ICVC supply`. As of the 2026-06-18 COB snapshot this is **0.05758856 ICP per ICVC**. The inputs are baked into the wasm as constants (with a recorded timestamp) and change only via upgrade; `getFairValueInputs()` exposes the live breakdown. The canister is deliberately **not autonomous** at the edges — admin plays an active role in recovery (see [`RECOVERY.md`](./RECOVERY.md)).
 
-> **Status.** Two mainnet deployments (see [Deployments](#deployments)). **Play** (`play-v1`, live) runs against our own ICRC-1 ledger copies — **not** the production tokens. **Prod** (the real-value deployment) is **deployed but not yet live for users**: it is wired to the real ICVC token (`m6xut-mqaaa-aaaaq-aadua-cai`) and NNS ICP ledger (`ryjl3-tyaaa-aaaaa-aaaba-cai`), but the ICP pool is **unfunded** and sign-in is **disabled** pending go-live (controllership hardening, security review, funding — see [`TODO.md`](./TODO.md)).
+> **Status.** Two mainnet deployments (see [Deployments](#deployments)). **Play** (`play-v1`, live) runs against our own ICRC-1 ledger copies — **not** the production tokens. **Prod** (the real-value deployment) is wired to the real ICVC token (`m6xut-mqaaa-aaaaq-aadua-cai`) and NNS ICP ledger (`ryjl3-tyaaa-aaaaa-aaaba-cai`). Sign-in is **standard per-origin Internet Identity**: a holder sends their ICVC to their signed-in principal, then redeems — the dapp never takes authority over their NNS-dapp identity. Go-live funding of the ICP pool is in progress (see [`TODO.md`](./TODO.md)).
 >
 > The test **faucet has been removed** (a production wind-down has none; holders bring the ICVC they already own). The redemption logic, saga journal, admin allowlist, and test suite are production-shaped.
 
@@ -12,7 +12,7 @@ Canister for winding down the **ICVC DAO** on the Internet Computer. Token holde
 
 ### Prod (real value)
 
-Deployed 2026-06-19 — **not yet live for users** (ICP pool unfunded, sign-in disabled). Redemption module hash `0x04935f8a377273559606a281439888b39fcfbc1d51c9d1e2869346e4e9907ceb` (matches the reproducible build); `getLedgers()` returns the real ledgers below; controllers are `{operator, colleague, ICVC SNS root}`.
+Deployed 2026-06-19. Sign-in is standard per-origin Internet Identity (holders send their ICVC to their signed-in principal first; the dapp gets no authority over their NNS-dapp identity). Redemption module hash `0x04935f8a377273559606a281439888b39fcfbc1d51c9d1e2869346e4e9907ceb` (matches the reproducible build); `getLedgers()` returns the real ledgers below; admins `{operator, colleague}`, controllers `{operator, colleague, ICVC SNS root}`. ICP pool funding is in progress.
 
 | Canister | ID | Link |
 |---|---|---|

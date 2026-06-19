@@ -63,9 +63,6 @@ cd "$(dirname "$0")/.."
 
 ENV="local"
 REINSTALL_REDEMPTION=0
-# Gate for NNS principal derivation on mainnet (see the -e ic branch below).
-# Off by default; safe-default under `set -u`. Override: ENABLE_NNS_DERIVATION=1
-ENABLE_NNS_DERIVATION="${ENABLE_NNS_DERIVATION:-0}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -e|--environment) ENV="$2"; shift 2 ;;
@@ -92,7 +89,6 @@ fi
 if [[ "$ENV" == "local" ]]; then
   HOST="http://127.0.0.1:8000"
   II_PROVIDER=""   # filled in once the local II canister is created
-  DERIVATION_ORIGIN=""    # local: keep principals scoped to the local frontend origin
   DO_II=1
   DO_LEDGERS=1            # reinstall ledgers; seed balances
   REDEMPTION_MODE=reinstall
@@ -100,21 +96,11 @@ if [[ "$ENV" == "local" ]]; then
 else
   HOST="https://icp0.io"
   II_PROVIDER="https://identity.ic0.app"
-  # Mainnet: optionally derive principals from nns.ic0.app so holders sign in
-  # with the same principal that holds their ICVC in the NNS dApp. This ONLY
-  # works once nns.ic0.app lists this dapp's origin in its
-  # /.well-known/ii-alternative-origins; until then, turning it on makes II
-  # reject every login ("origin not trusted"). So it is gated OFF by default
-  # and the play deployment keeps per-origin principals (login works, holders
-  # just get a fresh principal). Flip it on only after that listing is live:
-  #   ENABLE_NNS_DERIVATION=1 bash scripts/deploy.sh -e ic
-  if [[ "$ENABLE_NNS_DERIVATION" == "1" || "$ENABLE_NNS_DERIVATION" == "true" ]]; then
-    DERIVATION_ORIGIN="https://nns.ic0.app"
-    echo "NNS principal derivation: ENABLED (nns.ic0.app must list this dapp in ii-alternative-origins)"
-  else
-    DERIVATION_ORIGIN=""
-    echo "NNS principal derivation: disabled (set ENABLE_NNS_DERIVATION=1 to enable once ii-alternative-origins is live)"
-  fi
+  # Standard per-origin Internet Identity: holders sign in with a principal
+  # scoped to THIS dapp's origin. We intentionally do NOT derive from
+  # nns.ic0.app — that would give the frontend authority over the user's entire
+  # NNS-dapp identity (all tokens/neurons), not just ICVC. Holders send their
+  # ICVC to their per-origin principal before redeeming; the SPA shows it.
   DO_II=0                 # mainnet uses the global identity.ic0.app
   DO_LEDGERS=0            # NEVER touch mainnet ledger state
   if [[ "$ENV" == "prod" ]]; then
@@ -484,7 +470,6 @@ sed \
   -e "s|__CANISTER_ID_ICP_LEDGER__|$ICP_LEDGER_ID|g" \
   -e "s|__HOST__|$HOST|g" \
   -e "s|__II_PROVIDER__|$II_PROVIDER|g" \
-  -e "s|__DERIVATION_ORIGIN__|$DERIVATION_ORIGIN|g" \
   -e "s|__LOGIN_ENABLED__|$LOGIN_ENABLED|g" \
   src/frontend/js/config.js.template > src/frontend/js/config.js
 

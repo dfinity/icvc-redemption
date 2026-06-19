@@ -8,17 +8,13 @@ export const CONFIG = {
   II_ID:              "rdmx6-jaaaa-aaaaa-aaadq-cai",
   HOST:               "__HOST__",
   II_PROVIDER:        "__II_PROVIDER__",
-  // Temporary kill-switch for sign-in. While false, the frontend disables the
-  // Login button and shows a banner — used until nns.ic0.app lists this dapp in
-  // its ii-alternative-origins (so holders would otherwise log in with a
-  // wrong, per-origin principal). Set by deploy.sh (LOGIN_ENABLED env).
+  // Operational kill-switch for sign-in. While false, the frontend disables the
+  // Login button and shows a banner. Default enabled; set by deploy.sh
+  // (LOGIN_ENABLED env). Login uses standard per-origin Internet Identity — the
+  // signed-in principal is scoped to this dapp's origin (we intentionally do NOT
+  // derive from nns.ic0.app, which would expose the user's whole NNS-dapp
+  // identity). Holders send their ICVC to that principal before redeeming.
   LOGIN_ENABLED:      __LOGIN_ENABLED__,
-  // When set, II derives principals as if the caller's origin were this URL.
-  // Mainnet uses https://nns.ic0.app so holders sign in with the same principal
-  // that holds their ICVC in the NNS dApp. Empty (and so omitted) locally,
-  // where principals are scoped to the local frontend origin by design.
-  // Requires the target origin to list this dapp in its /.well-known/ii-alternative-origins.
-  DERIVATION_ORIGIN:  "__DERIVATION_ORIGIN__",
   EXCHANGE_RATE:      5758856n,  // e8s fallback shown before getStats loads; live value = getStats().exchange_rate_e8s (fair-value derived)
 };
 export const E8S = 100000000n;

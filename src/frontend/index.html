@@ -37,6 +37,12 @@
     <div class="card">
       <h2>Redeem ICVC Tokens</h2>
 
+      <div id="send-path-note" class="hidden" style="background:#1e2a3a;border:1px solid #2d4a6b;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;line-height:1.55">
+        <strong>Redeem from this principal:</strong>
+        <code id="send-path-principal" style="word-break:break-all;display:block;margin:6px 0;cursor:pointer" onclick="copyPrincipal()" title="Click to copy">—</code>
+        Your ICVC must be held by <em>this</em> principal. If your ICVC is in the NNS dapp (or another wallet), <strong>send it here first</strong>, then redeem.
+      </div>
+
       <div class="input-box">
         <label for="icvc-input">
           <span>You send</span>

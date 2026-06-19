@@ -106,15 +106,11 @@ cd src/frontend && npm run build
 
 There is no watch mode today; rebuild manually with the command above after editing the bundle entry.
 
-## Mainnet II principal derivation (gated, off by default)
+## Sign-in model (per-origin Internet Identity)
 
-On mainnet the SPA can ask Internet Identity to derive principals from `nns.ic0.app`, so a holder signs in with the same principal that holds their ICVC in the NNS dApp. This is **disabled by default** because it only works once `nns.ic0.app` lists this dapp's origin in its `/.well-known/ii-alternative-origins`; enabling it before then makes II reject every login ("origin not trusted").
+The SPA uses **standard per-origin Internet Identity**: a holder signs in with a principal scoped to this dapp's own origin. We deliberately do **not** derive principals from `nns.ic0.app` — that (the `derivationOrigin` / `ii-alternative-origins` mechanism) would hand the frontend authority over the user's *entire* NNS-dapp identity (all tokens, neurons), not just ICVC, which is an unacceptable blast radius for a wind-down dapp.
 
-Leave it off for the play deployment (login works; holders just get a fresh per-origin principal). Once the `ii-alternative-origins` listing is live, enable it for that one deploy:
-
-```bash
-ENABLE_NNS_DERIVATION=1 bash scripts/deploy.sh -e ic
-```
+Consequence: a holder's signed-in principal will not already hold their ICVC (that sits under their NNS-dapp principal). They **send their ICVC to their signed-in principal first**, then approve + redeem. The SPA shows the principal with that instruction. `LOGIN_ENABLED=false bash scripts/deploy.sh -e …` is a kill-switch that greys out sign-in if ever needed (default enabled).
 
 ## Opening a pull request
 
