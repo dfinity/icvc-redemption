@@ -4,9 +4,33 @@
 
 Canister for winding down the **ICVC DAO** on the Internet Computer. Token holders swap ICVC for ICP at a **fair-value rate derived from the DAO treasury's backing**: `(treasury ICP + treasury nICP valued in ICP) ÷ total ICVC supply`. As of the 2026-06-18 COB snapshot this is **0.05758856 ICP per ICVC**. The inputs are baked into the wasm as constants (with a recorded timestamp) and change only via upgrade; `getFairValueInputs()` exposes the live breakdown. The canister is deliberately **not autonomous** at the edges — admin plays an active role in recovery (see [`RECOVERY.md`](./RECOVERY.md)).
 
-> **Status: play deployment only.** This canister is on IC mainnet but only **play ledgers** are connected — both the ICVC ledger (`zekdo-fyaaa-aaaae-agadq-cai`) and the ICP ledger (`yjeha-kqaaa-aaaae-agaea-cai`) are our own deployed copies of the official ICRC-1 ledger wasm, **not** the production ICVC token or the NNS ICP ledger. The redemption logic, saga journal, admin allowlist, and test suite are production-shaped.
+> **Status.** Two mainnet deployments (see [Deployments](#deployments)). **Play** (`play-v1`, live) runs against our own ICRC-1 ledger copies — **not** the production tokens. **Prod** (the real-value deployment) is **deployed but not yet live for users**: it is wired to the real ICVC token (`m6xut-mqaaa-aaaaq-aadua-cai`) and NNS ICP ledger (`ryjl3-tyaaa-aaaaa-aaaba-cai`), but the ICP pool is **unfunded** and sign-in is **disabled** pending go-live (controllership hardening, security review, funding — see [`TODO.md`](./TODO.md)).
 >
-> **Prod prep:** `main` is being readied for a real-value deployment — the test **faucet has been removed** (a production wind-down has none; holders bring the ICVC they already own), and a prod deploy points at the real ICVC token (`m6xut-mqaaa-aaaaq-aadua-cai`) and the NNS ICP ledger (`ryjl3-tyaaa-aaaaa-aaaba-cai`). The play deployment above stays live (tagged `play-v1`).
+> The test **faucet has been removed** (a production wind-down has none; holders bring the ICVC they already own). The redemption logic, saga journal, admin allowlist, and test suite are production-shaped.
+
+## Deployments
+
+### Prod (real value)
+
+Deployed 2026-06-19 — **not yet live for users** (ICP pool unfunded, sign-in disabled). Redemption module hash `0x04935f8a377273559606a281439888b39fcfbc1d51c9d1e2869346e4e9907ceb` (matches the reproducible build); `getLedgers()` returns the real ledgers below; controllers are `{operator, colleague, ICVC SNS root}`.
+
+| Canister | ID | Link |
+|---|---|---|
+| frontend | `atino-ciaaa-aaaae-agwjq-cai` | https://atino-ciaaa-aaaae-agwjq-cai.icp0.io |
+| redemption | `aujl2-pqaaa-aaaae-agwja-cai` | [dashboard](https://dashboard.internetcomputer.org/canister/aujl2-pqaaa-aaaae-agwja-cai) |
+| ICVC ledger (real) | `m6xut-mqaaa-aaaaq-aadua-cai` | [dashboard](https://dashboard.internetcomputer.org/canister/m6xut-mqaaa-aaaaq-aadua-cai) |
+| ICP ledger (NNS) | `ryjl3-tyaaa-aaaaa-aaaba-cai` | [dashboard](https://dashboard.internetcomputer.org/canister/ryjl3-tyaaa-aaaaa-aaaba-cai) |
+
+### Play (`play-v1`)
+
+Our own deployed copies of the ICRC-1 ledger wasm — **not** the production tokens.
+
+| Canister | ID | Link |
+|---|---|---|
+| frontend | `zdlf2-iaaaa-aaaae-agada-cai` | https://zdlf2-iaaaa-aaaae-agada-cai.icp0.io |
+| redemption | `yofbu-hiaaa-aaaae-agaeq-cai` | [dashboard](https://dashboard.internetcomputer.org/canister/yofbu-hiaaa-aaaae-agaeq-cai) |
+| ICVC ledger (copy) | `zekdo-fyaaa-aaaae-agadq-cai` | [dashboard](https://dashboard.internetcomputer.org/canister/zekdo-fyaaa-aaaae-agadq-cai) |
+| ICP ledger (copy) | `yjeha-kqaaa-aaaae-agaea-cai` | [dashboard](https://dashboard.internetcomputer.org/canister/yjeha-kqaaa-aaaae-agaea-cai) |
 
 ## Architecture
 

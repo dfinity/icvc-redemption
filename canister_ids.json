@@ -1,6 +1,7 @@
 {
   "frontend": {
-    "ic": "zdlf2-iaaaa-aaaae-agada-cai"
+    "ic": "zdlf2-iaaaa-aaaae-agada-cai",
+    "prod": "atino-ciaaa-aaaae-agwjq-cai"
   },
   "icp_ledger": {
     "ic": "yjeha-kqaaa-aaaae-agaea-cai",
@@ -11,6 +12,7 @@
     "prod": "m6xut-mqaaa-aaaaq-aadua-cai"
   },
   "redemption": {
-    "ic": "yofbu-hiaaa-aaaae-agaeq-cai"
+    "ic": "yofbu-hiaaa-aaaae-agaeq-cai",
+    "prod": "aujl2-pqaaa-aaaae-agwja-cai"
   }
 }
