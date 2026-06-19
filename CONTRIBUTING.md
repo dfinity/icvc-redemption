@@ -108,9 +108,9 @@ There is no watch mode today; rebuild manually with the command above after edit
 
 ## Sign-in model (per-origin Internet Identity)
 
-The SPA uses **standard per-origin Internet Identity**: a holder signs in with a principal scoped to this dapp's own origin. We deliberately do **not** derive principals from `nns.ic0.app` — that (the `derivationOrigin` / `ii-alternative-origins` mechanism) would hand the frontend authority over the user's *entire* NNS-dapp identity (all tokens, neurons), not just ICVC, which is an unacceptable blast radius for a wind-down dapp.
+The SPA uses **standard per-origin Internet Identity**: a holder signs in with a principal scoped to this dapp's own origin. We deliberately do **not** set `derivationOrigin` (the `ii-alternative-origins` mechanism) — that would hand the frontend the user's identity at another origin, i.e. authority over *all* the assets that identity controls there, not just ICVC. That blast radius is unacceptable for a wind-down dapp.
 
-Consequence: a holder's signed-in principal will not already hold their ICVC (that sits under their NNS-dapp principal). They **send their ICVC to their signed-in principal first**, then approve + redeem. The SPA shows the principal with that instruction. `LOGIN_ENABLED=false bash scripts/deploy.sh -e …` is a kill-switch that greys out sign-in if ever needed (default enabled).
+Consequence: a holder's signed-in principal will not already hold their ICVC (it sits under whatever principal they hold it with). They **send their ICVC to their signed-in principal first**, then approve + redeem. The SPA shows the principal with that instruction. `LOGIN_ENABLED=false bash scripts/deploy.sh -e …` is a kill-switch that greys out sign-in if ever needed (default enabled).
 
 ## Opening a pull request
 

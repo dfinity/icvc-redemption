@@ -203,9 +203,9 @@ window.handleConnect = async function() {
     },
   };
   // Standard per-origin II: the user gets a principal scoped to THIS dapp's
-  // origin. We deliberately do NOT set derivationOrigin (e.g. nns.ic0.app) —
-  // that would give this frontend authority over the user's entire NNS-dapp
-  // identity (all their tokens/neurons), not just ICVC. Holders send their
+  // origin. We deliberately do NOT set derivationOrigin — that would give this
+  // frontend the user's identity at another origin, i.e. authority over the
+  // assets that identity controls there, not just ICVC. Holders send their
   // ICVC to their per-origin principal first (see the send-path note).
   await authClient.login(loginOptions);
 };

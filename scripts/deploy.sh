@@ -97,10 +97,10 @@ else
   HOST="https://icp0.io"
   II_PROVIDER="https://identity.ic0.app"
   # Standard per-origin Internet Identity: holders sign in with a principal
-  # scoped to THIS dapp's origin. We intentionally do NOT derive from
-  # nns.ic0.app — that would give the frontend authority over the user's entire
-  # NNS-dapp identity (all tokens/neurons), not just ICVC. Holders send their
-  # ICVC to their per-origin principal before redeeming; the SPA shows it.
+  # scoped to THIS dapp's origin. We intentionally do NOT set derivationOrigin —
+  # that would give the frontend the user's identity at another origin (and
+  # authority over its assets), not just ICVC. Holders send their ICVC to their
+  # per-origin principal before redeeming; the SPA shows it.
   DO_II=0                 # mainnet uses the global identity.ic0.app
   DO_LEDGERS=0            # NEVER touch mainnet ledger state
   if [[ "$ENV" == "prod" ]]; then
@@ -460,9 +460,8 @@ if ! command -v npm >/dev/null 2>&1; then
   echo "ERROR: npm is required for the frontend recipe build (esbuild). Install Node.js >= 20." >&2
   exit 1
 fi
-# Sign-in kill-switch (temporary). Defaults on for local/play; set
-# LOGIN_ENABLED=false (e.g. for the prod deploy) to ship the frontend with the
-# Login button disabled until II is aligned with the NNS dApp.
+# Sign-in kill-switch. Defaults on; set LOGIN_ENABLED=false to ship the frontend
+# with the Login button greyed out (operational pause of the UI, if ever needed).
 LOGIN_ENABLED="${LOGIN_ENABLED:-true}"
 sed \
   -e "s|__CANISTER_ID_REDEMPTION__|$REDEMPTION_ID|g" \
