@@ -144,6 +144,31 @@
       </div>
 
       <div class="card">
+        <h2>Send</h2>
+        <div class="input-box">
+          <label for="send-amount">
+            <span>Amount</span>
+            <span>Balance: <span id="send-balance">0</span> <span id="send-balance-sym">ICP</span> <button class="max-btn" type="button" onclick="setSendMax()">MAX</button></span>
+          </label>
+          <div class="input-row">
+            <input type="text" inputmode="decimal" id="send-amount" placeholder="0.00" oninput="updateSendButton()">
+            <select id="send-token" class="token-badge" style="border:none;cursor:pointer" onchange="onSendTokenChange()">
+              <option value="ICP">ICP</option>
+              <option value="ICVC">ICVC</option>
+            </select>
+          </div>
+        </div>
+        <div class="input-box">
+          <label for="send-to"><span>Recipient principal</span></label>
+          <div class="input-row">
+            <input type="text" id="send-to" placeholder="e.g. xxxxx-...-cai" oninput="updateSendButton()">
+          </div>
+        </div>
+        <button id="btn-send" class="btn btn-primary" onclick="handleSend()" disabled>Send</button>
+        <div id="send-msg" class="hidden" role="status" aria-live="polite"></div>
+      </div>
+
+      <div class="card">
         <div class="section-label">Your Redemptions</div>
         <div id="user-tx-list" class="tx-list"><span class="empty">No redemptions yet.</span></div>
       </div>

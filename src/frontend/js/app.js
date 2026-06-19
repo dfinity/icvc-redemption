@@ -154,7 +154,7 @@ async function setupAgent(identity) {
   // Surface the per-origin principal + "send your ICVC here first" guidance:
   // the logged-in principal must HOLD the ICVC for redeem to work.
   const spNote = $("send-path-note");
-  if (spNote) { $("send-path-principal").textContent = userPrincipal.toText(); spNote.classList.remove("hidden"); }
+  if (spNote) { $("send-path-principal").textContent = shortenPrincipal(userPrincipal.toText()); spNote.classList.remove("hidden"); }
   updateRedeemButton();
 
   await refreshBalances();
@@ -543,6 +543,7 @@ async function refreshWallet() {
   await refreshBalances();
   $("wallet-icvc").textContent = e8sToDisplay(balances.icvc, 2);
   $("wallet-icp").textContent = e8sToDisplay(balances.icp, 2);
+  onSendTokenChange();   // refresh the Send card's balance line for the selected token
 
   try {
     // Show the most recent 50 redemptions for this user; the canister
@@ -553,6 +554,79 @@ async function refreshWallet() {
     console.error("User tx fetch failed:", err);
   }
 }
+
+// ============================================================
+// Send (withdraw ICP / ICVC from the per-origin principal)
+// ============================================================
+window.onSendTokenChange = function() {
+  const tok = $("send-token").value;
+  $("send-balance-sym").textContent = tok;
+  $("send-balance").textContent = e8sToDisplay(tok === "ICVC" ? balances.icvc : balances.icp, 4);
+  updateSendButton();
+};
+
+window.setSendMax = async function() {
+  const tok = $("send-token").value;
+  const ledger = tok === "ICVC" ? icvcLedger : icpLedger;
+  if (!ledger) return;
+  try {
+    const fee = BigInt(await ledger.icrc1_fee());
+    const bal = tok === "ICVC" ? balances.icvc : balances.icp;
+    $("send-amount").value = e8sToInput(bal > fee ? bal - fee : 0n);
+  } catch (err) { console.error("fee fetch failed:", err); }
+  updateSendButton();
+};
+
+window.updateSendButton = function() {
+  const btn = $("btn-send");
+  if (!btn) return;
+  const to = $("send-to").value.trim();
+  const raw = $("send-amount").value;
+  const amountOk = raw && !isNaN(parseFloat(raw)) && parseFloat(raw) > 0;
+  btn.disabled = !(to.length > 0 && amountOk);
+};
+
+window.handleSend = async function() {
+  hideMsg("send-msg");
+  const tok = $("send-token").value;
+  const ledger = tok === "ICVC" ? icvcLedger : icpLedger;
+  const bal = tok === "ICVC" ? balances.icvc : balances.icp;
+  if (!ledger) { showMsg("send-msg", "Not connected.", true); return; }
+  const toText = $("send-to").value.trim();
+  let to;
+  try { to = Principal.fromText(toText); }
+  catch { showMsg("send-msg", "Invalid recipient principal.", true); return; }
+  let amt;
+  try { amt = tokenToE8s($("send-amount").value); }
+  catch { showMsg("send-msg", "Invalid amount.", true); return; }
+  if (amt <= 0n) { showMsg("send-msg", "Enter an amount greater than 0.", true); return; }
+
+  const btn = $("btn-send");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Sending...';
+  try {
+    const fee = BigInt(await ledger.icrc1_fee());
+    if (amt + fee > bal) {
+      throw new Error(`Insufficient ${tok}: ${e8sToDisplay(amt)} + ${e8sToDisplay(fee)} fee exceeds your ${e8sToDisplay(bal)} ${tok}.`);
+    }
+    if (!window.confirm(`Send ${e8sToDisplay(amt)} ${tok} to:\n${toText}\n\nNetwork fee: ${e8sToDisplay(fee)} ${tok}. This is irreversible.`)) {
+      return;
+    }
+    const res = await ledger.icrc1_transfer({
+      to: { owner: to, subaccount: [] },
+      amount: amt, fee: [], memo: [], from_subaccount: [], created_at_time: [],
+    });
+    if ("Err" in res) throw new Error("Transfer failed: " + JSON.stringify(res.Err));
+    showMsg("send-msg", `Sent ${e8sToDisplay(amt)} ${tok} (block ${res.Ok.toString()}).`, false);
+    $("send-amount").value = ""; $("send-to").value = "";
+    await refreshWallet();
+  } catch (err) {
+    showMsg("send-msg", err.message || "Send failed", true);
+  } finally {
+    btn.textContent = "Send";
+    updateSendButton();
+  }
+};
 
 // ============================================================
 // Sound
