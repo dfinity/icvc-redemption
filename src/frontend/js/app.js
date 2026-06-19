@@ -131,6 +131,16 @@ window.showTab = function(tab) {
 // ============================================================
 async function initAuth() {
   authClient = await AuthClient.create();
+  // When sign-in is disabled, the login button is not the gate — a returning
+  // user with a cached II session would otherwise be silently re-authenticated
+  // here and could drive the (authenticated) swap UI. Clear any cached session
+  // and do not restore one. NOTE: this is defense-in-depth only; a custom
+  // agent/CLI can still hold its own delegation, so the authoritative gate is
+  // the canister being PAUSED server-side until go-live.
+  if (!CONFIG.LOGIN_ENABLED) {
+    try { await authClient.logout(); } catch (_) {}
+    return;
+  }
   if (await authClient.isAuthenticated()) {
     await setupAgent(authClient.getIdentity());
   }

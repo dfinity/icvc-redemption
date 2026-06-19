@@ -243,7 +243,13 @@ REDEMPTION_MODE=upgrade FRONTEND_MODE=upgrade bash scripts/deploy.sh -e prod
 
 3. **Fund the ICP pool** — the DAO transfers the payout ICP to `$PROD` on the real ICP ledger (`ryjl3-…`). Pool accounting then tracks the live `icrc1_balance_of` (see "Phased funding model" in `README.md`). Do this **only after** the security review and steps 1–2 pass.
 
-> The `prod` env never deploys the ledgers (`DO_LEDGERS=0`) and never touches the play `ic` canisters. The only shared infrastructure is the `ic` network itself.
+4. **Go-live: unpause.** A fresh `-e prod` install lands **paused** (`deploy.sh` engages the launch gate after install) — `redeem` returns `#Paused` for *every* caller, so a cached browser session or a custom agent/CLI cannot redeem regardless of the frontend's `LOGIN_ENABLED` flag. This is the authoritative gate; the UI flag is only cosmetic. As the final go-live step, after funding + review:
+   ```bash
+   echo y | icp canister call -n ic "$PROD" unpause '()'
+   icp canister call -n ic "$PROD" getStats '()'   # confirm paused = false
+   ```
+
+> The `prod` env never deploys the ledgers (`DO_LEDGERS=0`) and never touches the play `ic` canisters. The only shared infrastructure is the `ic` network itself. The canister stays **paused** from install until step 4 — do not unpause before funding + review.
 
 ---
 

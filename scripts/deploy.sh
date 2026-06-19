@@ -443,6 +443,21 @@ else
       --args "$REDEMPTION_INIT_ARGS" >/dev/null
 fi
 
+# ---- Step 7b: prod launch gate (first install only) ------------------------
+# A fresh prod install lands UNPAUSED. The frontend `LOGIN_ENABLED=false` flag
+# only hides the login button — it is NOT an auth boundary: a holder with a
+# cached II session or a custom agent/CLI could redeem the moment the pool is
+# funded. So engage the server-side gate immediately: paused `redeem` returns
+# #Paused for EVERY caller. Go-live = `unpause` AFTER funding + security review
+# (MIGRATIONS.md §7). Only on first install — an upgrade preserves the existing
+# (stable) paused state, so a live prod canister is never silently re-paused.
+if [[ "$ENV" == "prod" && "$REDEMPTION_MODE" == "install" ]]; then
+  echo ""
+  echo "--- Pausing prod redemption (launch gate; unpause at go-live) ---"
+  echo y | icp canister call -n ic "$REDEMPTION_ID" pause '()' >/dev/null
+  echo "  paused — redeem returns #Paused for ALL callers until go-live."
+fi
+
 # ---- Step 8: balance sanity checks ----------------------------------------
 
 echo ""
