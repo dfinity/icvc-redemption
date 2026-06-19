@@ -7,7 +7,7 @@ import { CONFIG, E8S } from "./config.js";
 import { buildIdlFactories } from "./idl.js";
 
 const { HttpAgent, Actor, AuthClient, IDL, Principal } = await import("./dfinity.js");
-const { ledgerIdl, redemptionIdl } = buildIdlFactories(IDL);
+const { ledgerIdl, redemptionIdl, icpLegacyIdl } = buildIdlFactories(IDL);
 
 // ============================================================
 // State
@@ -18,6 +18,7 @@ let userPrincipal = null;
 let icvcLedger = null;
 let icpLedger = null;
 let redemption = null;
+let icpLegacy = null;   // ICP ledger via its legacy (account-identifier) transfer interface
 let balances = { icvc: 0n, icp: 0n };
 let exchangeRate = CONFIG.EXCHANGE_RATE;
 let paused = false;   // mirrors the canister's server-side pause (from getStats)
@@ -145,6 +146,7 @@ async function setupAgent(identity) {
 
   icvcLedger = Actor.createActor(ledgerIdl, { agent, canisterId: CONFIG.ICVC_LEDGER_ID });
   icpLedger  = Actor.createActor(ledgerIdl, { agent, canisterId: CONFIG.ICP_LEDGER_ID });
+  icpLegacy  = Actor.createActor(icpLegacyIdl, { agent, canisterId: CONFIG.ICP_LEDGER_ID });
   redemption = Actor.createActor(redemptionIdl, { agent, canisterId: CONFIG.REDEMPTION_ID });
 
   $("principal-text").textContent = shortenPrincipal(userPrincipal.toText());
@@ -154,7 +156,7 @@ async function setupAgent(identity) {
   // Surface the per-origin principal + "send your ICVC here first" guidance:
   // the logged-in principal must HOLD the ICVC for redeem to work.
   const spNote = $("send-path-note");
-  if (spNote) { $("send-path-principal").textContent = shortenPrincipal(userPrincipal.toText()); spNote.classList.remove("hidden"); }
+  if (spNote) { $("send-path-principal-text").textContent = shortenPrincipal(userPrincipal.toText()); spNote.classList.remove("hidden"); }
   updateRedeemButton();
 
   await refreshBalances();
@@ -162,13 +164,15 @@ async function setupAgent(identity) {
   await refreshWallet();
 }
 
-window.copyPrincipal = async function() {
+window.copyPrincipal = async function(tooltipId) {
   if (!userPrincipal) return;
   try {
-    await navigator.clipboard.writeText(userPrincipal.toText());
-    const tooltip = $("copied-tooltip");
-    tooltip.classList.add("show");
-    setTimeout(() => tooltip.classList.remove("show"), 1500);
+    await navigator.clipboard.writeText(userPrincipal.toText());   // always the FULL principal
+    const tooltip = $(tooltipId || "copied-tooltip");
+    if (tooltip) {
+      tooltip.classList.add("show");
+      setTimeout(() => tooltip.classList.remove("show"), 1500);
+    }
   } catch (err) {
     console.error("Copy failed:", err);
   }
@@ -558,10 +562,37 @@ async function refreshWallet() {
 // ============================================================
 // Send (withdraw ICP / ICVC from the per-origin principal)
 // ============================================================
+// CRC32 (IEEE) — validates an ICP account-identifier's 4-byte checksum.
+function crc32(bytes) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) {
+    crc ^= bytes[i];
+    for (let j = 0; j < 8; j++) crc = (crc & 1) ? ((crc >>> 1) ^ 0xEDB88320) : (crc >>> 1);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+// Parse a 64-hex ICP account identifier into 32 bytes, verifying its CRC32
+// checksum (first 4 bytes) so a mistyped address is caught before sending.
+function accountIdFromHex(hex) {
+  hex = hex.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hex)) throw new Error("ICP account ID must be 64 hex characters.");
+  const bytes = [];
+  for (let i = 0; i < 64; i += 2) bytes.push(parseInt(hex.substr(i, 2), 16));
+  const want = crc32(bytes.slice(4));
+  const got = ((bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]) >>> 0;
+  if (want !== got) throw new Error("ICP account ID checksum failed — double-check the address.");
+  return bytes;
+}
+
 window.onSendTokenChange = function() {
   const tok = $("send-token").value;
   $("send-balance-sym").textContent = tok;
   $("send-balance").textContent = e8sToDisplay(tok === "ICVC" ? balances.icvc : balances.icp, 4);
+  // ICVC (ICRC-1) goes to a principal; ICP may also go to a 64-hex account id.
+  const isIcp = tok === "ICP";
+  if ($("send-to-label")) $("send-to-label").textContent = isIcp ? "Recipient (principal or ICP account ID)" : "Recipient principal";
+  if ($("send-to")) $("send-to").placeholder = isIcp ? "principal or 64-char ICP account ID" : "recipient principal";
   updateSendButton();
 };
 
@@ -593,9 +624,23 @@ window.handleSend = async function() {
   const bal = tok === "ICVC" ? balances.icvc : balances.icp;
   if (!ledger) { showMsg("send-msg", "Not connected.", true); return; }
   const toText = $("send-to").value.trim();
-  let to;
-  try { to = Principal.fromText(toText); }
-  catch { showMsg("send-msg", "Invalid recipient principal.", true); return; }
+
+  // Resolve the destination. ICVC (ICRC-1) -> principal. ICP -> principal
+  // (ICRC-1) OR a 64-hex account identifier (legacy `transfer`).
+  let mode = null, toPrincipal = null, toAccount = null;
+  try { toPrincipal = Principal.fromText(toText); mode = "principal"; }
+  catch {
+    if (tok === "ICP" && /^[0-9a-fA-F]{64}$/.test(toText)) {
+      try { toAccount = accountIdFromHex(toText); mode = "accountid"; }
+      catch (e) { showMsg("send-msg", e.message, true); return; }
+    } else {
+      showMsg("send-msg", tok === "ICP"
+        ? "Enter a valid principal or 64-character ICP account ID."
+        : "Enter a valid recipient principal.", true);
+      return;
+    }
+  }
+
   let amt;
   try { amt = tokenToE8s($("send-amount").value); }
   catch { showMsg("send-msg", "Invalid amount.", true); return; }
@@ -612,12 +657,24 @@ window.handleSend = async function() {
     if (!window.confirm(`Send ${e8sToDisplay(amt)} ${tok} to:\n${toText}\n\nNetwork fee: ${e8sToDisplay(fee)} ${tok}. This is irreversible.`)) {
       return;
     }
-    const res = await ledger.icrc1_transfer({
-      to: { owner: to, subaccount: [] },
-      amount: amt, fee: [], memo: [], from_subaccount: [], created_at_time: [],
-    });
-    if ("Err" in res) throw new Error("Transfer failed: " + JSON.stringify(res.Err));
-    showMsg("send-msg", `Sent ${e8sToDisplay(amt)} ${tok} (block ${res.Ok.toString()}).`, false);
+    let block;
+    if (mode === "accountid") {
+      // ICP legacy transfer to a raw account identifier.
+      const res = await icpLegacy.transfer({
+        to: toAccount, fee: { e8s: fee }, memo: 0n,
+        from_subaccount: [], created_at_time: [], amount: { e8s: amt },
+      });
+      if ("Err" in res) throw new Error("Transfer failed: " + JSON.stringify(res.Err));
+      block = res.Ok.toString();
+    } else {
+      const res = await ledger.icrc1_transfer({
+        to: { owner: toPrincipal, subaccount: [] },
+        amount: amt, fee: [], memo: [], from_subaccount: [], created_at_time: [],
+      });
+      if ("Err" in res) throw new Error("Transfer failed: " + JSON.stringify(res.Err));
+      block = res.Ok.toString();
+    }
+    showMsg("send-msg", `Sent ${e8sToDisplay(amt)} ${tok} (block ${block}).`, false);
     $("send-amount").value = ""; $("send-to").value = "";
     await refreshWallet();
   } catch (err) {

@@ -37,10 +37,14 @@
     <div class="card">
       <h2>Redeem ICVC Tokens</h2>
 
-      <div id="send-path-note" class="hidden" style="background:#1e2a3a;border:1px solid #2d4a6b;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;line-height:1.55">
+      <div id="send-path-note" class="hidden" style="background:#1e2a3a;border:1px solid #2d4a6b;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;line-height:1.9">
         <strong>Redeem from this principal:</strong>
-        <code id="send-path-principal" style="word-break:break-all;display:block;margin:6px 0;cursor:pointer" onclick="copyPrincipal()" title="Click to copy">—</code>
-        Your ICVC must be held by <em>this</em> principal. If your ICVC is held by another wallet or principal, <strong>send it here first</strong>, then redeem.
+        <span class="principal-chip" id="send-path-principal" onclick="copyPrincipal('send-path-copied')" title="Click to copy the full principal" style="vertical-align:middle">
+          <span id="send-path-principal-text">—</span>
+          <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <span class="copied-tooltip" id="send-path-copied">Copied!</span>
+        </span>
+        — your ICVC must be held by <em>this</em> principal; if it's held elsewhere, <strong>send it here first</strong>, then redeem.
       </div>
 
       <div class="input-box">
@@ -159,9 +163,9 @@
           </div>
         </div>
         <div class="input-box">
-          <label for="send-to"><span>Recipient principal</span></label>
+          <label for="send-to"><span id="send-to-label">Recipient principal</span></label>
           <div class="input-row">
-            <input type="text" id="send-to" placeholder="e.g. xxxxx-...-cai" oninput="updateSendButton()">
+            <input type="text" id="send-to" placeholder="recipient principal" oninput="updateSendButton()">
           </div>
         </div>
         <button id="btn-send" class="btn btn-primary" onclick="handleSend()" disabled>Send</button>
