@@ -8,13 +8,10 @@ export const CONFIG = {
   II_ID:              "rdmx6-jaaaa-aaaaa-aaadq-cai",
   HOST:               "__HOST__",
   II_PROVIDER:        "__II_PROVIDER__",
-  // Operational kill-switch for sign-in. While false, the frontend disables the
-  // Login button and shows a banner. Default enabled; set by deploy.sh
-  // (LOGIN_ENABLED env). Login uses standard per-origin Internet Identity — the
-  // signed-in principal is scoped to this dapp's origin (we intentionally do NOT
-  // set derivationOrigin, which would expose the user's identity at another
-  // origin). Holders send their ICVC to that principal before redeeming.
-  LOGIN_ENABLED:      __LOGIN_ENABLED__,
+  // Sign-in is standard per-origin Internet Identity (no derivationOrigin), so
+  // the principal is scoped to this dapp; holders send their ICVC to it before
+  // redeeming. There is no client-side login gate — the canister's `pause` state
+  // (surfaced from getStats) is the real, server-side control.
   EXCHANGE_RATE:      5758856n,  // e8s fallback shown before getStats loads; live value = getStats().exchange_rate_e8s (fair-value derived)
 };
 export const E8S = 100000000n;
