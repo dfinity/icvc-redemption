@@ -185,7 +185,7 @@ window.toggleRateInfo = function() {
 function applyLoginGate() {
   if (CONFIG.LOGIN_ENABLED) return;
   const btn = $("btn-connect");
-  if (btn) { btn.disabled = true; btn.textContent = "Sign-in temporarily disabled"; }
+  if (btn) { btn.disabled = true; btn.textContent = "Sign-in disabled"; }
   const banner = $("login-disabled-banner");
   if (banner) banner.classList.remove("hidden");
 }
