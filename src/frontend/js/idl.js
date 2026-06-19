@@ -65,7 +65,6 @@ export function buildIdlFactories(IDL) {
         getStats: IDL.Func([], [Stats], []),
         getRedemptionHistory: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(RedemptionRecord)], ["query"]),
         getUserRedemptions: IDL.Func([IDL.Principal, IDL.Nat, IDL.Nat], [IDL.Vec(RedemptionRecord)], ["query"]),
-        faucet: IDL.Func([], [IDL.Variant({ ok: IDL.Nat, err: IDL.Text })], []),
         getExchangeRate: IDL.Func([], [IDL.Nat], ["query"]),
         getFairValueInputs: IDL.Func([], [FairValueInputs], ["query"]),
     });

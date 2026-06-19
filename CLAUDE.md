@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Prototype ICVC redemption canister for winding down ICVC DAO on the Internet Computer: token holders swap ICVC for ICP at a fair-value rate derived from the DAO treasury's backing. The rate is fixed in the deployed wasm and changes only via upgrade.
 
-**Prod prep in progress** — `main` is being readied for a real-value deployment: the **faucet has been removed**, and a prod deploy points at the real ICVC ledger (`m6xut-mqaaa-aaaaq-aadua-cai`) and the NNS ICP ledger (`ryjl3-tyaaa-aaaaa-aaaba-cai`). The original **play** deployment (canisters `yofbu`/`zdlf2`, tagged `play-v1`) still runs against our own ICRC-1 ledger copies, *not* the production tokens.
+**Prod is deployed** (2026-06-19) — the real-value canisters (redemption `aujl2-pqaaa-aaaae-agwja-cai`, frontend `atino-ciaaa-aaaae-agwjq-cai`) are live on the `prod` env, wired to the real ICVC ledger (`m6xut-mqaaa-aaaaq-aadua-cai`) and NNS ICP ledger (`ryjl3-tyaaa-aaaaa-aaaba-cai`), with the **faucet removed**. They are **not yet live for users**: the ICP pool is **unfunded** and sign-in is **disabled** pending go-live (security review, funding). The original **play** deployment (canisters `yofbu`/`zdlf2`, tagged `play-v1`) still runs against our own ICRC-1 ledger copies, *not* the production tokens. See `README.md` for the deployment table.
 
 See [`README.md`](./README.md) for the full overview, architecture diagram, project layout, and tech stack. This file is the agent / code-author reference: the parts not duplicated elsewhere are the gotchas in "Important Details" and the test coverage map below.
 
