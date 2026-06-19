@@ -115,6 +115,10 @@ else
     # with REDEMPTION_MODE=upgrade FRONTEND_MODE=upgrade ... -e prod.
     REDEMPTION_MODE="${REDEMPTION_MODE:-install}"
     FRONTEND_MODE="${FRONTEND_MODE:-reinstall}"
+    # `icp canister create` via the cycles ledger needs an EXPLICIT subnet; left
+    # to default it targets the NNS subnet (tdb26-…) and is rejected. Pin it to
+    # the application subnet the prod canisters live on (overridable via env).
+    PROD_SUBNET="${PROD_SUBNET:-shefu-t3kr5-t5q3w-mqmdq-jabyv-vyvtf-cyyey-3kmo4-toyln-emubw-4qe}"
   else
     REDEMPTION_MODE=upgrade # play mainnet: preserves state
     # Asset-canister upgrade = re-sync. Overridable: the FIRST deploy that
@@ -245,7 +249,12 @@ create_if_missing() {
     return 0
   fi
   echo "Creating ${name}..."
-  icp canister create "$name" -e "$ENV" >/dev/null
+  if [[ "$ENV" == "prod" ]]; then
+    # Cycles-ledger create needs an explicit application subnet (see PROD_SUBNET).
+    icp canister create "$name" -e "$ENV" --subnet "$PROD_SUBNET" >/dev/null
+  else
+    icp canister create "$name" -e "$ENV" >/dev/null
+  fi
 }
 
 if [[ "$ENV" == "local" ]]; then
@@ -257,8 +266,9 @@ elif [[ "$ENV" == "prod" ]]; then
   # Real-value mainnet: we create only OUR canisters (redemption + frontend).
   # The ICVC + ICP ledgers are the real, externally-owned tokens — never
   # created here (their ids are pre-seeded in prod.ids.json). `icp canister
-  # create` sets the calling identity (the HSM) as the sole controller; the
-  # SNS-root + colleague controllers are added afterward (see MIGRATIONS.md §7).
+  # create` sets the calling identity (the deploying operator key) as the sole
+  # controller; the SNS-root + colleague controllers are added afterward (see
+  # MIGRATIONS.md §7).
   CANISTERS=(redemption frontend)
   echo ""
   echo "--- Creating prod canisters (skip if already present) ---"
