@@ -210,8 +210,9 @@ icp identity default icvc-mainnet        # principal jaad2-…-xae
 # 1. First deploy: creates the prod redemption + frontend canisters, builds the
 #    redemption wasm reproducibly (Docker) + hash-gates it, installs with the
 #    REAL ledger ids resolved from the prod registry, and syncs the frontend.
-#    Keep login OFF until II is aligned with the NNS dApp (see CONTRIBUTING.md).
-LOGIN_ENABLED=false bash scripts/deploy.sh -e prod
+#    Sign-in is standard per-origin II and enabled by default (see CONTRIBUTING.md);
+#    pass LOGIN_ENABLED=false only if you want to ship with sign-in greyed out.
+bash scripts/deploy.sh -e prod
 ```
 
 Default modes for a first `-e prod` deploy are `REDEMPTION_MODE=install` + `FRONTEND_MODE=reinstall` (empty, freshly-created canisters). For **later** upgrades, preserve state:

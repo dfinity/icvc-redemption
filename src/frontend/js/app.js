@@ -149,6 +149,10 @@ async function setupAgent(identity) {
   $("principal-display").classList.remove("hidden");
   $("btn-connect").classList.add("hidden");
   $("btn-disconnect").classList.remove("hidden");
+  // Surface the per-origin principal + "send your ICVC here first" guidance:
+  // the logged-in principal must HOLD the ICVC for redeem to work.
+  const spNote = $("send-path-note");
+  if (spNote) { $("send-path-principal").textContent = userPrincipal.toText(); spNote.classList.remove("hidden"); }
   updateRedeemButton();
 
   await refreshBalances();
@@ -175,13 +179,13 @@ window.toggleRateInfo = function() {
   $("rate-info-btn").setAttribute("aria-expanded", String(!nowHidden));
 };
 
-// Temporary: sign-in is disabled until II is aligned with the NNS dApp
-// (ii-alternative-origins). When disabled, the Login button is greyed out and a
-// banner is shown; gate handleConnect too so nothing can trigger a login.
+// Operational kill-switch for sign-in (CONFIG.LOGIN_ENABLED, default enabled).
+// When false, the Login button is greyed out, a banner is shown, and
+// handleConnect is gated so nothing can trigger a login.
 function applyLoginGate() {
   if (CONFIG.LOGIN_ENABLED) return;
   const btn = $("btn-connect");
-  if (btn) { btn.disabled = true; btn.textContent = "Sign-in temporarily disabled"; }
+  if (btn) { btn.disabled = true; btn.textContent = "Sign-in disabled"; }
   const banner = $("login-disabled-banner");
   if (banner) banner.classList.remove("hidden");
 }
@@ -198,11 +202,11 @@ window.handleConnect = async function() {
       console.error("Login failed:", err);
     },
   };
-  // On mainnet, ask II to derive principals from nns.ic0.app so the user signs
-  // in with the same principal that holds their ICVC in the NNS dApp.
-  if (CONFIG.DERIVATION_ORIGIN) {
-    loginOptions.derivationOrigin = CONFIG.DERIVATION_ORIGIN;
-  }
+  // Standard per-origin II: the user gets a principal scoped to THIS dapp's
+  // origin. We deliberately do NOT set derivationOrigin — that would give this
+  // frontend the user's identity at another origin, i.e. authority over the
+  // assets that identity controls there, not just ICVC. Holders send their
+  // ICVC to their per-origin principal first (see the send-path note).
   await authClient.login(loginOptions);
 };
 
@@ -215,6 +219,7 @@ window.handleDisconnect = async function() {
   $("principal-display").classList.add("hidden");
   $("btn-connect").classList.remove("hidden");
   $("btn-disconnect").classList.add("hidden");
+  $("send-path-note")?.classList.add("hidden");
   $("swap-icvc-balance").textContent = "0";
   updateOutput();
   updateRedeemButton();

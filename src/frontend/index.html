@@ -28,7 +28,7 @@
 </header>
 
 <div id="login-disabled-banner" class="hidden" style="background:#3a2e00;color:#ffd479;text-align:center;padding:10px 16px;font-size:14px">
-  Sign-in is temporarily disabled while we align Internet Identity with the NNS dApp. Balances and the live rate are viewable; redemption will re-open shortly.
+  Sign-in is currently disabled. Balances and the live rate remain viewable.
 </div>
 
 <main>
@@ -36,6 +36,12 @@
   <div id="view-swap">
     <div class="card">
       <h2>Redeem ICVC Tokens</h2>
+
+      <div id="send-path-note" class="hidden" style="background:#1e2a3a;border:1px solid #2d4a6b;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;line-height:1.55">
+        <strong>Redeem from this principal:</strong>
+        <code id="send-path-principal" style="word-break:break-all;display:block;margin:6px 0;cursor:pointer" onclick="copyPrincipal()" title="Click to copy">—</code>
+        Your ICVC must be held by <em>this</em> principal. If your ICVC is held by another wallet or principal, <strong>send it here first</strong>, then redeem.
+      </div>
 
       <div class="input-box">
         <label for="icvc-input">
