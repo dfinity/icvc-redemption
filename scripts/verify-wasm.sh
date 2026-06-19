@@ -76,8 +76,10 @@ else
   trap 'rm -f "$OUT"' EXIT
 fi
 
-# Same command icp.yaml uses for the `redemption` canister's build step.
-"$MOC" src/redemption/main.mo $(mops sources) -o "$OUT"
+# Same command icp.yaml / Dockerfile.build use for the `redemption` build step
+# (incl. --public-metadata so the Candid interface is public). Keep all three
+# in sync, or the hashes diverge.
+"$MOC" --public-metadata candid:service --public-metadata candid:args src/redemption/main.mo $(mops sources) -o "$OUT"
 
 LOCAL_HASH="$(sha256 "$OUT")"
 echo ""
