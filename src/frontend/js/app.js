@@ -7,7 +7,7 @@ import { CONFIG, E8S } from "./config.js";
 import { buildIdlFactories } from "./idl.js";
 
 const { HttpAgent, Actor, AuthClient, IDL, Principal } = await import("./dfinity.js");
-const { ledgerIdl, redemptionIdl } = buildIdlFactories(IDL);
+const { ledgerIdl, redemptionIdl, icpLegacyIdl } = buildIdlFactories(IDL);
 
 // ============================================================
 // State
@@ -18,6 +18,7 @@ let userPrincipal = null;
 let icvcLedger = null;
 let icpLedger = null;
 let redemption = null;
+let icpLegacy = null;   // ICP ledger via its legacy (account-identifier) transfer interface
 let balances = { icvc: 0n, icp: 0n };
 let exchangeRate = CONFIG.EXCHANGE_RATE;
 let paused = false;   // mirrors the canister's server-side pause (from getStats)
@@ -28,8 +29,10 @@ let paused = false;   // mirrors the canister's server-side pause (from getStats
 function e8sToDisplay(e8s, decimals) {
   if (typeof e8s !== "bigint") e8s = BigInt(e8s);
   if (decimals !== undefined) {
+    // Always show exactly `decimals` places (so whole amounts read "60.00",
+    // not "60") — keeps balances aligned across ICVC / ICP / Send.
     return (Number(e8s) / 1e8).toLocaleString(undefined, {
-      minimumFractionDigits: 0,
+      minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     });
   }
@@ -145,6 +148,7 @@ async function setupAgent(identity) {
 
   icvcLedger = Actor.createActor(ledgerIdl, { agent, canisterId: CONFIG.ICVC_LEDGER_ID });
   icpLedger  = Actor.createActor(ledgerIdl, { agent, canisterId: CONFIG.ICP_LEDGER_ID });
+  icpLegacy  = Actor.createActor(icpLegacyIdl, { agent, canisterId: CONFIG.ICP_LEDGER_ID });
   redemption = Actor.createActor(redemptionIdl, { agent, canisterId: CONFIG.REDEMPTION_ID });
 
   $("principal-text").textContent = shortenPrincipal(userPrincipal.toText());
@@ -154,7 +158,7 @@ async function setupAgent(identity) {
   // Surface the per-origin principal + "send your ICVC here first" guidance:
   // the logged-in principal must HOLD the ICVC for redeem to work.
   const spNote = $("send-path-note");
-  if (spNote) { $("send-path-principal").textContent = userPrincipal.toText(); spNote.classList.remove("hidden"); }
+  if (spNote) { $("send-path-principal-text").textContent = shortenPrincipal(userPrincipal.toText()); spNote.classList.remove("hidden"); }
   updateRedeemButton();
 
   await refreshBalances();
@@ -162,13 +166,15 @@ async function setupAgent(identity) {
   await refreshWallet();
 }
 
-window.copyPrincipal = async function() {
+window.copyPrincipal = async function(tooltipId) {
   if (!userPrincipal) return;
   try {
-    await navigator.clipboard.writeText(userPrincipal.toText());
-    const tooltip = $("copied-tooltip");
-    tooltip.classList.add("show");
-    setTimeout(() => tooltip.classList.remove("show"), 1500);
+    await navigator.clipboard.writeText(userPrincipal.toText());   // always the FULL principal
+    const tooltip = $(tooltipId || "copied-tooltip");
+    if (tooltip) {
+      tooltip.classList.add("show");
+      setTimeout(() => tooltip.classList.remove("show"), 1500);
+    }
   } catch (err) {
     console.error("Copy failed:", err);
   }
@@ -475,19 +481,19 @@ document.addEventListener("keydown", (e) => {
 });
 
 window.confirmRedeem = async function() {
-  window.closeConfirmModal();
   const raw = $("icvc-input").value;
   if (!raw) return;
   const icvcE8s = tokenToE8s(raw);
   if (icvcE8s <= 0n) return;
 
   hideMsg("redeem-msg");
-  const btn = $("btn-redeem");
+  // Disable the confirm button immediately (guards against a double-click /
+  // double-submit) and show progress in the open modal, like the Send modal.
+  const btn = $("btn-confirm-redeem");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Approving ICVC...';
 
   try {
-    btn.innerHTML = '<span class="spinner"></span>Approving ICVC...';
-    btn.disabled = true;
-
     // Semantics: the input value (icvcE8s) is the amount that reaches the
     // canister. Two ICVC ledger fees are paid by the user on top: one for
     // approve, one absorbed by transfer_from (paid by the `from` account
@@ -514,16 +520,19 @@ window.confirmRedeem = async function() {
       throw new Error("Redeem failed: " + key + (result.err[key] !== null ? " - " + result.err[key] : ""));
     }
 
+    closeConfirmModal();
     showMsg("redeem-msg", "Redemption successful!", false);
     $("icvc-input").value = "";
     updateOutput();
     await refreshBalances();
     await refreshStats();
   } catch (err) {
+    closeConfirmModal();
     showMsg("redeem-msg", err.message || "Unknown error", true);
     await refreshBalances();
   } finally {
-    btn.textContent = "Redeem ICVC for ICP";
+    btn.textContent = "Confirm Swap";
+    btn.disabled = false;
     updateRedeemButton();
   }
 };
@@ -543,6 +552,7 @@ async function refreshWallet() {
   await refreshBalances();
   $("wallet-icvc").textContent = e8sToDisplay(balances.icvc, 2);
   $("wallet-icp").textContent = e8sToDisplay(balances.icp, 2);
+  onSendTokenChange();   // refresh the Send card's balance line for the selected token
 
   try {
     // Show the most recent 50 redemptions for this user; the canister
@@ -553,6 +563,163 @@ async function refreshWallet() {
     console.error("User tx fetch failed:", err);
   }
 }
+
+// ============================================================
+// Send (withdraw ICP / ICVC from the per-origin principal)
+// ============================================================
+// CRC32 (IEEE) — validates an ICP account-identifier's 4-byte checksum.
+function crc32(bytes) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) {
+    crc ^= bytes[i];
+    for (let j = 0; j < 8; j++) crc = (crc & 1) ? ((crc >>> 1) ^ 0xEDB88320) : (crc >>> 1);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+// Parse a 64-hex ICP account identifier into 32 bytes, verifying its CRC32
+// checksum (first 4 bytes) so a mistyped address is caught before sending.
+function accountIdFromHex(hex) {
+  hex = hex.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hex)) throw new Error("ICP account ID must be 64 hex characters.");
+  const bytes = [];
+  for (let i = 0; i < 64; i += 2) bytes.push(parseInt(hex.substr(i, 2), 16));
+  const want = crc32(bytes.slice(4));
+  const got = ((bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]) >>> 0;
+  if (want !== got) throw new Error("ICP account ID checksum failed — double-check the address.");
+  return bytes;
+}
+
+window.onSendTokenChange = function() {
+  const tok = $("send-token").value;
+  $("send-balance-sym").textContent = tok;
+  $("send-balance").textContent = e8sToDisplay(tok === "ICVC" ? balances.icvc : balances.icp, 4);
+  // ICVC (ICRC-1) goes to a principal; ICP may also go to a 64-hex account id.
+  const isIcp = tok === "ICP";
+  if ($("send-to-label")) $("send-to-label").textContent = isIcp ? "ICP account ID (address)" : "Recipient principal";
+  if ($("send-to")) $("send-to").placeholder = isIcp ? "64-character ICP account ID" : "recipient principal";
+  updateSendButton();
+};
+
+window.setSendMax = async function() {
+  const tok = $("send-token").value;
+  const ledger = tok === "ICVC" ? icvcLedger : icpLedger;
+  if (!ledger) return;
+  try {
+    const fee = BigInt(await ledger.icrc1_fee());
+    const bal = tok === "ICVC" ? balances.icvc : balances.icp;
+    $("send-amount").value = e8sToInput(bal > fee ? bal - fee : 0n);
+  } catch (err) { console.error("fee fetch failed:", err); }
+  updateSendButton();
+};
+
+window.updateSendButton = function() {
+  const btn = $("btn-send");
+  if (!btn) return;
+  const to = $("send-to").value.trim();
+  const raw = $("send-amount").value;
+  const amountOk = raw && !isNaN(parseFloat(raw)) && parseFloat(raw) > 0;
+  btn.disabled = !(to.length > 0 && amountOk);
+};
+
+let pendingSend = null;          // staged by handleSend, executed by confirmSend
+let sendModalReturnFocus = null;
+
+window.handleSend = async function() {
+  hideMsg("send-msg");
+  const tok = $("send-token").value;
+  const ledger = tok === "ICVC" ? icvcLedger : icpLedger;
+  const bal = tok === "ICVC" ? balances.icvc : balances.icp;
+  if (!ledger) { showMsg("send-msg", "Not connected.", true); return; }
+  const toText = $("send-to").value.trim();
+
+  // Resolve the destination. ICVC (ICRC-1) -> principal. ICP -> a 64-hex
+  // account identifier (the address format used everywhere for ICP), sent via
+  // the ledger's legacy `transfer`.
+  let mode = null, toPrincipal = null, toAccount = null;
+  if (tok === "ICP") {
+    try { toAccount = accountIdFromHex(toText); mode = "accountid"; }
+    catch (e) { showMsg("send-msg", e.message, true); return; }
+  } else {
+    try { toPrincipal = Principal.fromText(toText); mode = "principal"; }
+    catch { showMsg("send-msg", "Enter a valid recipient principal.", true); return; }
+  }
+
+  let amt;
+  try { amt = tokenToE8s($("send-amount").value); }
+  catch { showMsg("send-msg", "Invalid amount.", true); return; }
+  if (amt <= 0n) { showMsg("send-msg", "Enter an amount greater than 0.", true); return; }
+
+  let fee;
+  try { fee = BigInt(await ledger.icrc1_fee()); }
+  catch { showMsg("send-msg", "Could not fetch the ledger fee — try again.", true); return; }
+  if (amt + fee > bal) {
+    showMsg("send-msg", `Insufficient ${tok}: ${e8sToDisplay(amt)} + ${e8sToDisplay(fee)} fee exceeds your ${e8sToDisplay(bal)} ${tok}.`, true);
+    return;
+  }
+
+  // Stage the send and show the styled confirmation modal (same look as redeem).
+  pendingSend = { tok, ledger, amt, fee, mode, toPrincipal, toAccount };
+  $("send-confirm-amount").textContent = e8sToDisplay(amt) + " " + tok;
+  $("send-confirm-to").textContent = toText;
+  $("send-confirm-fee").textContent = e8sToDisplay(fee) + " " + tok;
+  openSendModal();
+};
+
+function openSendModal() {
+  sendModalReturnFocus = document.activeElement;
+  $("send-modal").classList.remove("hidden");
+  $("btn-cancel-send").focus();   // safer default for a fund-committing action
+}
+
+window.closeSendModal = function() {
+  $("send-modal").classList.add("hidden");
+  if (sendModalReturnFocus && typeof sendModalReturnFocus.focus === "function") sendModalReturnFocus.focus();
+  sendModalReturnFocus = null;
+};
+
+window.confirmSend = async function() {
+  if (!pendingSend) return;
+  const { tok, ledger, amt, fee, mode, toPrincipal, toAccount } = pendingSend;
+  const btn = $("btn-confirm-send");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Sending...';
+  try {
+    let block;
+    if (mode === "accountid") {
+      const res = await icpLegacy.transfer({
+        to: toAccount, fee: { e8s: fee }, memo: 0n,
+        from_subaccount: [], created_at_time: [], amount: { e8s: amt },
+      });
+      if ("Err" in res) throw new Error("Transfer failed: " + JSON.stringify(res.Err));
+      block = res.Ok.toString();
+    } else {
+      const res = await ledger.icrc1_transfer({
+        to: { owner: toPrincipal, subaccount: [] },
+        amount: amt, fee: [], memo: [], from_subaccount: [], created_at_time: [],
+      });
+      if ("Err" in res) throw new Error("Transfer failed: " + JSON.stringify(res.Err));
+      block = res.Ok.toString();
+    }
+    closeSendModal();
+    showMsg("send-msg", `Sent ${e8sToDisplay(amt)} ${tok} (block ${block}).`, false);
+    $("send-amount").value = ""; $("send-to").value = "";
+    await refreshWallet();
+  } catch (err) {
+    closeSendModal();
+    showMsg("send-msg", err.message || "Send failed", true);
+  } finally {
+    btn.textContent = "Confirm Send";
+    btn.disabled = false;
+    pendingSend = null;
+  }
+};
+
+// Send modal: Escape closes (matches the redeem modal's behaviour).
+document.addEventListener("keydown", (e) => {
+  if ($("send-modal").classList.contains("hidden")) return;
+  if (e.key === "Escape") { e.preventDefault(); closeSendModal(); }
+});
 
 // ============================================================
 // Sound

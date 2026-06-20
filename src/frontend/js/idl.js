@@ -69,5 +69,29 @@ export function buildIdlFactories(IDL) {
         getFairValueInputs: IDL.Func([], [FairValueInputs], ["query"]),
     });
 
-    return { ledgerIdl, redemptionIdl };
+    // NNS ICP ledger's LEGACY transfer (account-identifier based). icrc1_transfer
+    // only accepts principals, but most ICP withdrawal destinations (exchanges,
+    // NNS dapp) are a 32-byte account identifier — which needs this method.
+    const ICPTokens = IDL.Record({ e8s: IDL.Nat64 });
+    const icpLegacyIdl = ({ IDL: _IDL }) => IDL.Service({
+        transfer: IDL.Func([IDL.Record({
+            to: IDL.Vec(IDL.Nat8),
+            fee: ICPTokens,
+            memo: IDL.Nat64,
+            from_subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)),
+            created_at_time: IDL.Opt(IDL.Record({ timestamp_nanos: IDL.Nat64 })),
+            amount: ICPTokens,
+        })], [IDL.Variant({
+            Ok: IDL.Nat64,
+            Err: IDL.Variant({
+                TxTooOld: IDL.Record({ allowed_window_nanos: IDL.Nat64 }),
+                BadFee: IDL.Record({ expected_fee: ICPTokens }),
+                TxDuplicate: IDL.Record({ duplicate_of: IDL.Nat64 }),
+                TxCreatedInFuture: IDL.Null,
+                InsufficientFunds: IDL.Record({ balance: ICPTokens }),
+            }),
+        })], []),
+    });
+
+    return { ledgerIdl, redemptionIdl, icpLegacyIdl };
 }
