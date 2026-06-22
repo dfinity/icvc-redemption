@@ -1,0 +1,11 @@
+[
+  {
+    "match": "**/*",
+    "headers": {
+      "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://icp0.io https://*.icp0.io https://ic0.app https://*.ic0.app https://identity.ic0.app; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none'",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "same-origin"
+    }
+  }
+]
