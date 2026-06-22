@@ -171,6 +171,68 @@ def test_force_refund_admin_only(pic, redemption_wasm, mock_ledger_wasm):
     assert err is not None and "Not authorized" in err, f"non-admin forceRefund should be rejected, got {out!r}"
 
 
+def test_concurrent_recovery_guard_prevents_double_refund(pic, redemption_wasm, mock_ledger_wasm):
+    """Per-id recovery guard: two concurrent forceRefunds on the same
+    #RefundPending id must not BOTH settle (that would drain the pool).
+
+    We force the interleave deterministically with a re-entrant mock: armed, the
+    ICVC ledger — mid refund-transfer of the OUTER forceRefund (which is parked
+    at its transfer await, still holding the per-id guard) — calls BACK into
+    forceRefund(id) for the same id. With the guard, that re-entrant call short-
+    circuits ("recovery already in progress"), so the ledger sees exactly ONE
+    refund transfer. On the pre-guard wasm the re-entrant call runs its own
+    transfer -> TWO transfers -> double-refund (this test FAILS there: count==2).
+
+    forceRefund uses a fresh created_at_time, so ledger dedup does NOT save us
+    here — the guard is the only thing preventing the double-pay.
+    """
+    d = make_mock_deployment(
+        pic, redemption_wasm, mock_ledger_wasm,
+        icvc_transfer_mode=1, icp_transfer_mode=1,
+    )
+    # Manufacture a stuck #RefundPending (pull ok; ICP send fails; inline refund fails).
+    d.pic.set_sender(ALICE)
+    decode(d.pic.update_call(d.redemption, "redeem", encode(_nat_args(AMOUNT))))
+    entries = _get_inflight(d)
+    assert len(entries) == 1
+    entry_id = entries[0][f"_{candid_hash('id')}"]
+    assert f"_{candid_hash('RefundPending')}" in entries[0][f"_{candid_hash('status')}"]
+
+    # The mock canister re-enters forceRefund as itself, so it must be an admin.
+    d.pic.set_sender(DEPLOYER)
+    add = decode(d.pic.update_call(
+        d.redemption, "addAdmin",
+        encode([{"type": Types.Principal, "value": d.icvc_ledger.bytes}]),
+    ))[0]["value"]
+    assert f"_{candid_hash('ok')}" in add, f"addAdmin(mock) should succeed, got {add!r}"
+
+    # Heal the ICVC ledger, arm the one-shot re-entry, reset the transfer counter.
+    _set_transfer_fail_mode(d, d.icvc_ledger, 0)
+    d.pic.set_anonymous_sender()
+    d.pic.update_call(
+        d.icvc_ledger, "setReentrantForceRefund",
+        encode([
+            {"type": Types.Principal, "value": d.redemption.bytes},
+            {"type": Types.Nat, "value": entry_id},
+        ]),
+    )
+    d.pic.update_call(d.icvc_ledger, "resetTransferCount", encode([]))
+
+    # Fire the outer forceRefund; the mock re-enters forceRefund(id) mid-transfer.
+    d.pic.set_sender(DEPLOYER)
+    forced = decode(d.pic.update_call(d.redemption, "forceRefund", encode(_nat_args(entry_id))))[0]["value"]
+    assert f"_{candid_hash('ok')}" in forced, f"outer forceRefund should succeed, got {forced!r}"
+
+    # The decisive assertion: exactly ONE refund transfer hit the ledger.
+    d.pic.set_anonymous_sender()
+    count = decode(d.pic.query_call(d.icvc_ledger, "getTransferCount", encode([])))[0]["value"]
+    assert count == 1, (
+        f"recovery guard failed: ledger saw {count} refund transfers for one id "
+        f"(expected 1; 2 means a concurrent forceRefund double-paid)"
+    )
+    assert _get_inflight(d) == [], "entry should be cleared exactly once"
+
+
 def test_force_close_inflight_real_entry(pic, redemption_wasm, mock_ledger_wasm):
     # Create a real stuck entry (#RefundPending) and clear it with the admin
     # escape hatch.
