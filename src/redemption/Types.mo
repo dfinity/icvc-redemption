@@ -167,4 +167,18 @@ module {
         icp_ledger_id : Principal;
         admin : Principal;
     };
+
+    /// Durable audit record of a privileged admin/recovery action. Appended by
+    /// the canister whenever an authorised caller invokes a state-mutating
+    /// admin method (pause/unpause, admin-allowlist changes, and the force/
+    /// recovery actions). Public (anonymous-readable) for accountability:
+    /// anyone can audit who did what, when. `id`/`detail` are best-effort
+    /// context (affected redemption id, target principal).
+    public type RecoveryLogEntry = {
+        timestamp : Timestamp;
+        caller : Principal;
+        action : Text;
+        id : ?Nat;
+        detail : Text;
+    };
 };
