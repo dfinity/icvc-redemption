@@ -54,7 +54,7 @@ canisters:
           - "cd src/frontend && npm ci"
           - "cd src/frontend && npm run build"
           - "cd src/frontend && test -f js/config.js || { echo 'js/config.js missing — run scripts/deploy.sh (it generates config.js before deploy)'; exit 1; }"
-          - "cd src/frontend && rm -rf dist && mkdir -p dist/js && cp index.html style.css dist/ && cp js/app.js js/idl.js js/dfinity.js js/config.js dist/js/"
+          - "cd src/frontend && rm -rf dist && mkdir -p dist/js && cp index.html style.css .ic-assets.json dist/ && cp js/app.js js/idl.js js/dfinity.js js/config.js dist/js/"
 
   # Internet Identity for the local dev environment only — mainnet uses the
   # global identity.ic0.app and does not deploy this canister. icp-cli does

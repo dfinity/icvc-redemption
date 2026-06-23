@@ -53,7 +53,15 @@ function e8sToInput(e8s) {
 }
 
 function tokenToE8s(s) {
-  s = s.replace(/,/g, "");
+  s = s.replace(/,/g, "").trim();
+  // Strict decimal only: an integer or a decimal with 1-8 fractional digits
+  // (optionally a leading "."). Rejects hex (0x10), multiple dots (1.2.3),
+  // negatives, scientific notation (1e3), >8 decimals, and empty/garbage, all
+  // of which BigInt() would otherwise silently turn into a wrong-but-positive
+  // amount. Callers catch the throw and surface "Invalid amount".
+  if (!/^(\d+(\.\d{1,8})?|\.\d{1,8})$/.test(s)) {
+    throw new Error("Enter a valid amount (digits, optional decimal up to 8 places).");
+  }
   const parts = s.split(".");
   const whole = BigInt(parts[0] || "0") * E8S;
   if (parts.length === 1) return whole;
@@ -647,8 +655,13 @@ window.handleSend = async function() {
 
   let amt;
   try { amt = tokenToE8s($("send-amount").value); }
-  catch { showMsg("send-msg", "Invalid amount.", true); return; }
+  catch (e) { showMsg("send-msg", e.message || "Invalid amount.", true); return; }
   if (amt <= 0n) { showMsg("send-msg", "Enter an amount greater than 0.", true); return; }
+  // Ledger amounts are Nat64 e8s; guard so an absurd value fails cleanly here
+  // rather than at candid encoding. (The balance check below also bounds it.)
+  if (amt > 18_446_744_073_709_551_615n) {
+    showMsg("send-msg", "Amount is too large.", true); return;
+  }
 
   let fee;
   try { fee = BigInt(await ledger.icrc1_fee()); }
