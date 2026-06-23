@@ -514,9 +514,16 @@ window.confirmRedeem = async function() {
       throw new Error(`Insufficient balance: redeeming ${e8sToDisplay(icvcE8s)} ICVC costs ${e8sToDisplay(totalIcvcOutflow)} ICVC including ledger fees, but you have ${e8sToDisplay(balances.icvc)} ICVC.`);
     }
 
+    // Bound the approval's lifetime: the redeem pulls within seconds, so a short
+    // expiry means an approve followed by an aborted/closed redeem doesn't leave
+    // the canister authorized to pull this amount indefinitely. 10 min covers the
+    // approve->pull latency plus modest browser-clock skew; if a clock is skewed
+    // beyond that the approve just expires early (the redeem fails cleanly) rather
+    // than lingering. Timestamp is ns since epoch.
+    const expiresAt = BigInt(Date.now()) * 1_000_000n + 600_000_000_000n; // now + 10 min
     const approveResult = await icvcLedger.icrc2_approve({
       from_subaccount: [], spender: { owner: Principal.fromText(CONFIG.REDEMPTION_ID), subaccount: [] },
-      amount: icvcE8s + fee, expected_allowance: [], expires_at: [],
+      amount: icvcE8s + fee, expected_allowance: [], expires_at: [expiresAt],
       fee: [], memo: [], created_at_time: [],
     });
     if ("Err" in approveResult) throw new Error("Approve failed: " + JSON.stringify(approveResult.Err));
