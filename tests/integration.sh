@@ -353,6 +353,31 @@ case_pause_unpause_cycle_resumes_redeem() {
     return 1
 }
 
+case_recoveryLog_records_admin_actions() {
+    # Privileged admin actions must be recorded in the durable, public audit log.
+    icp_call redemption pause >/dev/null
+    icp_call redemption unpause >/dev/null
+    local out
+    out=$(icp_call redemption getRecoveryLog '(0 : nat, 10 : nat)' --query)
+    # newest-first: the just-logged unpause/pause actions must be present.
+    if [[ "$out" == *"unpause"* && "$out" == *"pause"* && "$out" == *"action ="* ]]; then
+        return 0
+    fi
+    printf "    ${RED}getRecoveryLog did not record pause/unpause${RESET}\n%s\n" "$out"
+    return 1
+}
+
+case_recoveryLog_public() {
+    # Anonymous-readable (public query): must not return a NotAuthorized error.
+    local out
+    out=$(icp_call_id anonymous redemption getRecoveryLog '(0 : nat, 1 : nat)' --query)
+    if [[ "$out" != *"NotAuthorized"* && "$out" != *"2_102_411_630"* ]]; then
+        return 0
+    fi
+    printf "    ${RED}getRecoveryLog should be anonymous-readable${RESET}\n%s\n" "$out"
+    return 1
+}
+
 case_anonymous_public_queries_work() {
     # The frontend page-loads as anonymous and reads getStats /
     # getRedemptionHistory / getExchangeRate. These MUST stay callable
@@ -703,6 +728,8 @@ run_case "getInFlight empty after success"       case_getInFlight_empty_after_ha
 run_case "getInFlight is public"                  case_getInFlight_public
 run_case "retryRefund unknown id clean error"    case_retryRefund_unknown_id_clean_error
 run_case "forceCloseInFlight admin-only"         case_forceCloseInFlight_admin_only
+run_case "recoveryLog records admin actions"     case_recoveryLog_records_admin_actions
+run_case "recoveryLog is public"                 case_recoveryLog_public
 run_case "redeem delivers ICP to balance"        case_redeem_delivers_icp
 run_case "redeem burns redeemed ICVC"            case_redeem_burns_icvc
 run_case "sweepBurn admin no-op"                 case_sweepBurn_admin_noop

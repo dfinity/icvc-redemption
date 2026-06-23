@@ -127,6 +127,27 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     /// `Migration.migrate` on the upgrade that landed this PR.
     var stableInFlight : [Types.InFlightRedemption] = [];
 
+    // Durable audit log of privileged admin/recovery actions (pause/unpause,
+    // admin-allowlist changes, and the force/recovery actions). A plain stable
+    // array: these actions are admin-only and rare, so append-O(n) is fine and
+    // an attacker can't bloat it (only authorised callers are logged, after the
+    // auth check). Adding this new stable var is additive — on upgrade it simply
+    // initialises to [], so no Migration.mo is needed.
+    var recoveryLog : [Types.RecoveryLogEntry] = [];
+
+    // Append an audit entry. Call AFTER the isAdmin/auth check so only
+    // authorised invocations are recorded (no unbounded growth from rejected
+    // spam). Synchronous (no await) so it commits with the action.
+    func logRecovery(caller : Principal, action : Text, id : ?Nat, detail : Text) {
+        recoveryLog := Array.append(recoveryLog, [{
+            timestamp = Time.now();
+            caller;
+            action;
+            id;
+            detail;
+        }]);
+    };
+
     // ====================================================================
     // Runtime collections (transient, restored from stable in postupgrade)
     // ====================================================================
@@ -198,6 +219,7 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
             #getLedgers : () -> ();
             #getPendingBurns : () -> ();
             #getMyInFlight : () -> ();
+            #getRecoveryLog : () -> (offset : Nat, limit : Nat);
             #getRedemptionHistory : () -> (offset : Nat, limit : Nat);
             #getRedemptionLog : () -> (offset : Nat, limit : Nat);
             #getStats : () -> ();
@@ -730,7 +752,11 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     public shared ({ caller }) func forceCloseInFlight(id : Nat) : async Result.Result<(), Text> {
         if (not isAdmin(caller)) return #err("Not authorized");
         switch (findInFlightIndex(id)) {
-            case (?_) { removeInFlightById(id); #ok(()); };
+            case (?_) {
+                removeInFlightById(id);
+                logRecovery(caller, "forceCloseInFlight", ?id, "entry dropped without payment");
+                #ok(());
+            };
             case null { #err("No in-flight entry with id " # Nat.toText(id)); };
         };
     };
@@ -748,6 +774,7 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     /// refund already settled — otherwise this double-pays. See RECOVERY.md.
     public shared ({ caller }) func forceRefund(id : Nat) : async Result.Result<Nat, Text> {
         if (not isAdmin(caller)) return #err("Not authorized");
+        logRecovery(caller, "forceRefund", ?id, "fresh-timestamp refund (dedup bypassed)");
         let idx = switch (findInFlightIndex(id)) {
             case (?i) i;
             case null { return #err("No in-flight redemption with id " # Nat.toText(id)); };
@@ -799,6 +826,7 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     /// fail are kept for a later sweep.
     public shared ({ caller }) func sweepBurn() : async Result.Result<Nat, Text> {
         if (not isAdmin(caller)) return #err("Not authorized");
+        logRecovery(caller, "sweepBurn", null, "flush pending burns (pinned dedup)");
         var burnedThisCall : Nat = 0;
         // Track the ids we actually burn. We MUST NOT rebuild pendingBurns from
         // this loop's snapshot: each `await burnIcvc` yields, and a concurrent
@@ -847,6 +875,7 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     /// queued. See RECOVERY.md.
     public shared ({ caller }) func forceBurn() : async Result.Result<Nat, Text> {
         if (not isAdmin(caller)) return #err("Not authorized");
+        logRecovery(caller, "forceBurn", null, "fresh-timestamp burn (dedup bypassed)");
         var burnedThisCall : Nat = 0;
         // Same concurrency-safe reconciliation as sweepBurn: track burned ids and
         // filter the CURRENT pendingBurns at the end, rather than overwriting it
@@ -1103,12 +1132,14 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     public shared ({ caller }) func pause() : async Result.Result<(), Types.RedemptionError> {
         if (not isAdmin(caller)) return #err(#NotAuthorized);
         paused := true;
+        logRecovery(caller, "pause", null, "");
         #ok(());
     };
 
     public shared ({ caller }) func unpause() : async Result.Result<(), Types.RedemptionError> {
         if (not isAdmin(caller)) return #err(#NotAuthorized);
         paused := false;
+        logRecovery(caller, "unpause", null, "");
         #ok(());
     };
 
@@ -1128,6 +1159,7 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
         if (Principal.isAnonymous(newAdmin)) return #err("Cannot add the anonymous principal as admin");
         if (isAdmin(newAdmin)) return #err("Already an admin");
         admins := Array.append(admins, [newAdmin]);
+        logRecovery(caller, "addAdmin", null, Principal.toText(newAdmin));
         #ok(());
     };
 
@@ -1140,6 +1172,7 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
         if (not isAdmin(toRemove)) return #err("Not an admin");
         if (admins.size() <= 1) return #err("Cannot remove the last admin");
         admins := Array.filter<Principal>(admins, func(a) = not Principal.equal(a, toRemove));
+        logRecovery(caller, "removeAdmin", null, Principal.toText(toRemove));
         #ok(());
     };
 
@@ -1147,5 +1180,18 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     /// see who controls the canister.
     public query func listAdmins() : async [Principal] {
         admins;
+    };
+
+    /// Audit log of privileged admin/recovery actions, newest first, paginated
+    /// (`limit` clamped to MAX_PAGE_SIZE). Public for accountability: anyone can
+    /// see every pause/unpause, admin-allowlist change, and force/recovery
+    /// action the canister has performed, with caller + timestamp.
+    public query func getRecoveryLog(offset : Nat, limit : Nat) : async [Types.RecoveryLogEntry] {
+        let size = recoveryLog.size();
+        if (offset >= size) return [];
+        let effective_limit = Nat.min(limit, MAX_PAGE_SIZE);
+        let count = Nat.min(effective_limit, size - offset);
+        // Newest first: index back from the end.
+        Array.tabulate<Types.RecoveryLogEntry>(count, func(i) = recoveryLog[size - 1 - offset - i]);
     };
 };
