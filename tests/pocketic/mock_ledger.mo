@@ -16,6 +16,30 @@ import Principal "mo:base/Principal";
 persistent actor class MockLedger(initTransferFailMode : Nat) = self {
     var transferFailMode : Nat = initTransferFailMode;
 
+    // ---- Re-entrancy test hook (for the per-id recovery-guard regression) ----
+    // When armed, the FIRST icrc1_transfer this ledger receives calls BACK into
+    // the redemption canister's forceRefund(id) *before* returning, deterministically
+    // creating the concurrent-recovery interleave from inside the system (the
+    // outer recovery call is parked at its transfer await, holding the per-id
+    // guard, when the re-entrant call runs). One-shot, so the re-entrant call's
+    // own transfer (on the buggy wasm) does not recurse. `transferCount` lets the
+    // test assert exactly ONE refund transfer settled (guard) vs TWO (no guard).
+    type RedemptionActor = actor {
+        forceRefund : (Nat) -> async { #ok : Nat; #err : Text };
+    };
+    var reentrantTarget : ?Principal = null;
+    var reentrantId : Nat = 0;
+    var reentrantArmed : Bool = false;
+    var transferCount : Nat = 0;
+
+    public func setReentrantForceRefund(redemption : Principal, id : Nat) : async () {
+        reentrantTarget := ?redemption;
+        reentrantId := id;
+        reentrantArmed := true;
+    };
+    public query func getTransferCount() : async Nat { transferCount };
+    public func resetTransferCount() : async () { transferCount := 0 };
+
     type Account = { owner : Principal; subaccount : ?Blob };
     type TransferArg = {
         from_subaccount : ?Blob; to : Account; amount : Nat; fee : ?Nat;
@@ -69,7 +93,21 @@ persistent actor class MockLedger(initTransferFailMode : Nat) = self {
     public query func icrc1_minting_account() : async ?Account {
         ?{ owner = Principal.fromActor(self); subaccount = null };
     };
-    public shared func icrc1_transfer(_ : TransferArg) : async TransferResult { transferResult() };
+    public shared func icrc1_transfer(_ : TransferArg) : async TransferResult {
+        transferCount += 1;
+        if (reentrantArmed) {
+            switch (reentrantTarget) {
+                case (?p) {
+                    reentrantArmed := false; // one-shot
+                    let r : RedemptionActor = actor (Principal.toText(p));
+                    // Re-enter while the outer recovery call is parked here.
+                    ignore await r.forceRefund(reentrantId);
+                };
+                case null {};
+            };
+        };
+        transferResult();
+    };
     public shared func icrc2_transfer_from(_ : TransferFromArg) : async TransferResult { #Ok(0) };
     public shared func icrc2_approve(_ : ApproveArg) : async ApproveResult { #Ok(0) };
 };

@@ -145,6 +145,36 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     // window during which a stuck principal is locked out.
     transient let pendingRedemptions = HashMap.HashMap<Principal, Int>(16, Principal.equal, Principal.hash);
 
+    // Per-id recovery guard (transient). The recovery methods (retryRefund,
+    // forceRefund, sweepBurn, forceBurn) take no per-caller lock and each
+    // `await`s a ledger transfer before mutating state. Without a guard, two
+    // concurrent recovery calls for the SAME redemption id can both issue a
+    // ledger transfer: with matching dedup tuples the ledger catches the second
+    // as Duplicate (safe), but the fresh-timestamp paths (forceRefund/forceBurn)
+    // bypass dedup and would double-pay / double-burn, and even the dedup-safe
+    // case double-counts the in-memory `totalIcvcBurned`. This set makes
+    // recovery per-id single-flight: a method `tryEnterRecovery(id)` before its
+    // first await and `exitRecovery(id)` in a `finally`. An id in recovery is
+    // never simultaneously a live refund target AND a pending burn (a redeem
+    // that reached the burn step already succeeded and left inFlight), so one
+    // shared set is correct. Transient by the same reasoning as the redeem lock:
+    // in-flight messages don't survive an upgrade, so a stale guard would only
+    // cause a false "in progress" rejection.
+    transient let recoveryIds = Buffer.Buffer<Nat>(0);
+
+    func tryEnterRecovery(id : Nat) : Bool {
+        if (Buffer.contains<Nat>(recoveryIds, id, Nat.equal)) return false;
+        recoveryIds.add(id);
+        true;
+    };
+
+    func exitRecovery(id : Nat) {
+        let kept = Buffer.Buffer<Nat>(recoveryIds.size());
+        for (x in recoveryIds.vals()) { if (x != id) kept.add(x) };
+        recoveryIds.clear();
+        recoveryIds.append(kept);
+    };
+
     // ---- Ingress filter ----
     //
     // `canister_inspect_message` runs on a single replica without consensus,
@@ -644,44 +674,53 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
             };
         };
 
-        let fee = await icvc_ledger.icrc1_fee();
-        let payAmount : Nat = if (entry.icvc_amount > fee) { entry.icvc_amount - fee } else { 0 };
-        if (payAmount == 0) return #err("Owed amount is below the ledger fee; cannot refund");
+        // Single-flight per id: block a concurrent retryRefund/forceRefund for
+        // this same id from issuing a second, racing transfer.
+        if (not tryEnterRecovery(id)) {
+            return #err("A refund/recovery is already in progress for id " # Nat.toText(id));
+        };
+        try {
+            let fee = await icvc_ledger.icrc1_fee();
+            let payAmount : Nat = if (entry.icvc_amount > fee) { entry.icvc_amount - fee } else { 0 };
+            if (payAmount == 0) return #err("Owed amount is below the ledger fee; cannot refund");
 
-        // Pin created_at_time to the journal entry's dedup key so retries
-        // share an ICRC-1 dedup tuple with any prior (in-line or retry)
-        // refund attempt for this id. The ledger will return Duplicate
-        // instead of double-refunding if an earlier attempt committed.
-        bumpRefundAttempt(id);
-        let result = await icvc_ledger.icrc1_transfer({
-            from_subaccount = null;
-            to = callerAccount(entry.user);
-            amount = payAmount;
-            fee = ?fee;
-            memo = ?Pure.memoFromId(entry.id);
-            created_at_time = ?entry.icvc_dedup_created_at;
-        });
+            // Pin created_at_time to the journal entry's dedup key so retries
+            // share an ICRC-1 dedup tuple with any prior (in-line or retry)
+            // refund attempt for this id. The ledger will return Duplicate
+            // instead of double-refunding if an earlier attempt committed.
+            bumpRefundAttempt(id);
+            let result = await icvc_ledger.icrc1_transfer({
+                from_subaccount = null;
+                to = callerAccount(entry.user);
+                amount = payAmount;
+                fee = ?fee;
+                memo = ?Pure.memoFromId(entry.id);
+                created_at_time = ?entry.icvc_dedup_created_at;
+            });
 
-        switch (result) {
-            case (#Ok(txId)) {
-                removeInFlightById(id);
-                #ok(txId);
+            switch (result) {
+                case (#Ok(txId)) {
+                    removeInFlightById(id);
+                    #ok(txId);
+                };
+                // An earlier refund attempt with the same dedup key actually
+                // committed (its response was lost in transit). The user has
+                // their funds — close the saga and report the original tx id.
+                case (#Err(#Duplicate({ duplicate_of }))) {
+                    removeInFlightById(id);
+                    #ok(duplicate_of);
+                };
+                case (#Err(err)) {
+                    setInFlightStatus(id, #RefundPending({
+                        icvc_tx_id = icvc_tx_id;
+                        icp_error = priorIcpError;
+                        refund_error = debug_show(err);
+                    }));
+                    #err("Refund still failing: " # debug_show(err));
+                };
             };
-            // An earlier refund attempt with the same dedup key actually
-            // committed (its response was lost in transit). The user has
-            // their funds — close the saga and report the original tx id.
-            case (#Err(#Duplicate({ duplicate_of }))) {
-                removeInFlightById(id);
-                #ok(duplicate_of);
-            };
-            case (#Err(err)) {
-                setInFlightStatus(id, #RefundPending({
-                    icvc_tx_id = icvc_tx_id;
-                    icp_error = priorIcpError;
-                    refund_error = debug_show(err);
-                }));
-                #err("Refund still failing: " # debug_show(err));
-            };
+        } finally {
+            exitRecovery(id);
         };
     };
 
@@ -720,24 +759,35 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
             };
             case (_) {};
         };
-        let fee = await icvc_ledger.icrc1_fee();
-        let payAmount : Nat = if (entry.icvc_amount > fee) { entry.icvc_amount - fee } else { 0 };
-        if (payAmount == 0) return #err("Owed amount is below the ledger fee; cannot refund");
+        // Single-flight per id. Critical here: forceRefund uses a FRESH
+        // timestamp (below), so two concurrent forceRefund calls — or a
+        // forceRefund racing a user retryRefund — would NOT be caught by ledger
+        // dedup and would double-pay. The guard makes that impossible.
+        if (not tryEnterRecovery(id)) {
+            return #err("A refund/recovery is already in progress for id " # Nat.toText(id));
+        };
+        try {
+            let fee = await icvc_ledger.icrc1_fee();
+            let payAmount : Nat = if (entry.icvc_amount > fee) { entry.icvc_amount - fee } else { 0 };
+            if (payAmount == 0) return #err("Owed amount is below the ledger fee; cannot refund");
 
-        bumpRefundAttempt(id);
-        let result = await icvc_ledger.icrc1_transfer({
-            from_subaccount = null;
-            to = callerAccount(entry.user);
-            amount = payAmount;
-            fee = ?fee;
-            memo = ?Pure.memoFromId(entry.id);
-            created_at_time = ?Pure.nowNat64(); // fresh on purpose — bypasses TooOld
-        });
-        switch (result) {
-            case (#Ok(txId)) { removeInFlightById(id); #ok(txId); };
-            // Idempotency for repeated forceRefund within the dedup window.
-            case (#Err(#Duplicate({ duplicate_of }))) { removeInFlightById(id); #ok(duplicate_of); };
-            case (#Err(err)) { #err("forceRefund failed: " # debug_show (err)); };
+            bumpRefundAttempt(id);
+            let result = await icvc_ledger.icrc1_transfer({
+                from_subaccount = null;
+                to = callerAccount(entry.user);
+                amount = payAmount;
+                fee = ?fee;
+                memo = ?Pure.memoFromId(entry.id);
+                created_at_time = ?Pure.nowNat64(); // fresh on purpose — bypasses TooOld
+            });
+            switch (result) {
+                case (#Ok(txId)) { removeInFlightById(id); #ok(txId); };
+                // Idempotency for repeated forceRefund within the dedup window.
+                case (#Err(#Duplicate({ duplicate_of }))) { removeInFlightById(id); #ok(duplicate_of); };
+                case (#Err(err)) { #err("forceRefund failed: " # debug_show (err)); };
+            };
+        } finally {
+            exitRecovery(id);
         };
     };
 
@@ -760,13 +810,22 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
         // the ids we burned and preserving any concurrent appends.
         let burnedIds = Buffer.Buffer<Nat>(0);
         for ((id, amount, createdAt) in pendingBurns.vals()) {
-            switch (await burnIcvc(amount, id, createdAt)) {
-                case (#ok(_)) {
-                    totalIcvcBurned += amount;
-                    burnedThisCall += amount;
-                    burnedIds.add(id);
-                };
-                case (#err(_)) {};
+            // Single-flight per id: if another concurrent sweepBurn/forceBurn is
+            // already burning this id, skip it (it stays in pendingBurns and the
+            // owning call will burn + remove it). This guarantees each id is
+            // burned and counted exactly once, so `totalIcvcBurned += amount` on
+            // a #ok (including a dedup #Duplicate) cannot double-count.
+            if (tryEnterRecovery(id)) {
+                try {
+                    switch (await burnIcvc(amount, id, createdAt)) {
+                        case (#ok(_)) {
+                            totalIcvcBurned += amount;
+                            burnedThisCall += amount;
+                            burnedIds.add(id);
+                        };
+                        case (#err(_)) {};
+                    };
+                } finally { exitRecovery(id) };
             };
         };
         pendingBurns := Array.filter<(Nat, Nat, Nat64)>(
@@ -795,13 +854,20 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
         // redeem during the awaits).
         let burnedIds = Buffer.Buffer<Nat>(0);
         for ((id, amount, _) in pendingBurns.vals()) {
-            switch (await burnIcvc(amount, id, Pure.nowNat64())) { // fresh — bypasses TooOld
-                case (#ok(_)) {
-                    totalIcvcBurned += amount;
-                    burnedThisCall += amount;
-                    burnedIds.add(id);
-                };
-                case (#err(_)) {};
+            // Single-flight per id (see sweepBurn). Especially important here:
+            // the fresh timestamp bypasses ledger dedup, so without the guard two
+            // concurrent forceBurns on the same id could double-burn real tokens.
+            if (tryEnterRecovery(id)) {
+                try {
+                    switch (await burnIcvc(amount, id, Pure.nowNat64())) { // fresh — bypasses TooOld
+                        case (#ok(_)) {
+                            totalIcvcBurned += amount;
+                            burnedThisCall += amount;
+                            burnedIds.add(id);
+                        };
+                        case (#err(_)) {};
+                    };
+                } finally { exitRecovery(id) };
             };
         };
         pendingBurns := Array.filter<(Nat, Nat, Nat64)>(
@@ -850,6 +916,14 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     /// Get pool statistics
     public shared func getStats() : async Types.Stats {
         let icp_remaining = await icp_ledger.icrc1_balance_of(selfAccount());
+        // Derive pending-burn from the authoritative source (the sum of the
+        // pendingBurns queue) rather than `totalIcvcRedeemed - totalIcvcBurned`.
+        // The subtraction is a Nat op that TRAPS on underflow; deriving from the
+        // queue is both the true value (redeemed-but-not-yet-burned) and can
+        // never underflow, so this anonymous-readable endpoint can't be bricked
+        // by any transient accounting skew.
+        var icvc_pending_burn : Nat = 0;
+        for ((_, amount, _) in pendingBurns.vals()) { icvc_pending_burn += amount };
         {
             icp_remaining = icp_remaining;
             total_icvc_redeemed = totalIcvcRedeemed;
@@ -858,7 +932,7 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
             exchange_rate_e8s = exchange_rate_e8s;
             paused = paused;
             total_icvc_burned = totalIcvcBurned;
-            icvc_pending_burn = totalIcvcRedeemed - totalIcvcBurned;
+            icvc_pending_burn = icvc_pending_burn;
         };
     };
 
@@ -915,46 +989,75 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
     /// are removed from in-flight and do not appear here; their on-chain trail
     /// (ledger transfers tagged `redemption-<id>`) is the permanent record.
     public query func getRedemptionLog(offset : Nat, limit : Nat) : async [Types.RedemptionLogEntry] {
-        let all = Buffer.Buffer<Types.RedemptionLogEntry>(redemptions.size() + inFlight.size());
-        for (r in redemptions.vals()) {
-            all.add({
-                id = r.id;
-                user = r.user;
-                icvc_amount = r.icvc_amount;
-                icp_amount = r.icp_amount;
-                status = #Completed;
-                timestamp = r.timestamp;
-                icvc_tx_id = ?r.icvc_tx_id;
-                icp_tx_id = ?r.icp_tx_id;
-            });
-        };
-        for (e in inFlight.vals()) {
-            let (st, icvcTx) : (Types.RedemptionStatus, ?Nat) = switch (e.status) {
-                case (#Started) (#Started, null);
-                case (#IcvcPulled(d)) (#IcvcPulled, ?d.icvc_tx_id);
-                case (#IcpSendPending(d)) (#IcpSendPending, ?d.icvc_tx_id);
-                case (#RefundPending(d)) (#RefundPending, ?d.icvc_tx_id);
-            };
-            all.add({
-                id = e.id;
-                user = e.user;
-                icvc_amount = e.icvc_amount;
-                icp_amount = e.icp_amount;
-                status = st;
-                timestamp = e.started_at;
-                icvc_tx_id = icvcTx;
-                icp_tx_id = null;
-            });
-        };
-        let sorted = Array.sort<Types.RedemptionLogEntry>(
-            Buffer.toArray(all),
-            func(a, b) = Nat.compare(b.id, a.id),
-        );
-        let size = sorted.size();
-        if (offset >= size) return [];
+        // Bounded "newest first" merge. Both buffers are non-decreasing by their
+        // time field (`redemptions.timestamp` is set at completion and
+        // `inFlight.started_at` at start, both via monotonic `Time.now()` on
+        // sequential adds), so we walk them from the newest (high) end and
+        // two-pointer-merge by time descending, materialising ONLY the requested
+        // page. This is O(offset + limit) and allocates only the page, avoiding
+        // the previous O(N log N) sort + full-union allocation on every call,
+        // which grew unbounded with redemption history (an anonymous-readable
+        // query). Newest-by-time also more faithfully reflects "newest" than the
+        // previous id ordering (ids can complete out of order under concurrency).
+        let nR = redemptions.size();
+        let nF = inFlight.size();
+        let total = nR + nF;
+        if (offset >= total) return [];
         let effective_limit = Nat.min(limit, MAX_PAGE_SIZE);
-        let end = Nat.min(offset + effective_limit, size);
-        Array.tabulate<Types.RedemptionLogEntry>(end - offset, func(i) = sorted[offset + i]);
+        let toCollect = Nat.min(effective_limit, total - offset);
+
+        var i = nR; // exclusive cursor into redemptions (newest unread = i-1)
+        var j = nF; // exclusive cursor into inFlight   (newest unread = j-1)
+        // Should the next-newest come from `redemptions` (vs `inFlight`)?
+        func takeRedemption() : Bool {
+            if (i == 0) return false;
+            if (j == 0) return true;
+            redemptions.get(i - 1).timestamp >= inFlight.get(j - 1).started_at;
+        };
+
+        var skipped = 0;
+        while (skipped < offset) {
+            if (takeRedemption()) { i -= 1 } else { j -= 1 };
+            skipped += 1;
+        };
+
+        let out = Buffer.Buffer<Types.RedemptionLogEntry>(toCollect);
+        while (out.size() < toCollect) {
+            if (takeRedemption()) {
+                i -= 1;
+                let r = redemptions.get(i);
+                out.add({
+                    id = r.id;
+                    user = r.user;
+                    icvc_amount = r.icvc_amount;
+                    icp_amount = r.icp_amount;
+                    status = #Completed;
+                    timestamp = r.timestamp;
+                    icvc_tx_id = ?r.icvc_tx_id;
+                    icp_tx_id = ?r.icp_tx_id;
+                });
+            } else {
+                j -= 1;
+                let e = inFlight.get(j);
+                let (st, icvcTx) : (Types.RedemptionStatus, ?Nat) = switch (e.status) {
+                    case (#Started) (#Started, null);
+                    case (#IcvcPulled(d)) (#IcvcPulled, ?d.icvc_tx_id);
+                    case (#IcpSendPending(d)) (#IcpSendPending, ?d.icvc_tx_id);
+                    case (#RefundPending(d)) (#RefundPending, ?d.icvc_tx_id);
+                };
+                out.add({
+                    id = e.id;
+                    user = e.user;
+                    icvc_amount = e.icvc_amount;
+                    icp_amount = e.icp_amount;
+                    status = st;
+                    timestamp = e.started_at;
+                    icvc_tx_id = icvcTx;
+                    icp_tx_id = null;
+                });
+            };
+        };
+        Buffer.toArray(out);
     };
 
     /// Get the current exchange rate
