@@ -111,7 +111,7 @@ The canister cannot complete the round trip, journals the failure, and waits.
 
 ### Scenario C: Canister upgrade or trap after `#IcvcPulled` was written
 
-The ICP send was sent but the canister never observed the response — typically because an upgrade happened mid-flow, or a trap propagated up before the result was processed.
+The ICP send's outcome is **unknown** — an upgrade happened mid-flow, or a trap propagated up before the result was processed, so the payout may or may not have settled. (`#IcvcPulled` is the legacy equivalent of `#IcpSendPending`; treat it the same way: reconcile first, never blind-refund.)
 
 - The user's call returns an error (or times out client-side).
 - After the canister recovers, admin sees a `#IcvcPulled` entry in `getInFlight()`.
@@ -130,7 +130,7 @@ Look for entries with `status = variant { IcvcPulled = record { icvc_tx_id = ...
    # Inspect recent ICP ledger txs
    icp canister call -e ic icp_ledger get_transactions '(record { start = <START> : nat; length = 100 : nat })' --query
    ```
-2. **If no matching ICP transfer exists** (the most common case): call `retryRefund(<id>)`. The canister sends the ICVC back to the user, journal entry is removed.
+2. **If no matching ICP transfer exists** (the most common case): call `forceRefund(<id>)`. `retryRefund` **refuses** `#IcvcPulled` (its ICP outcome is unknown, so it could double-pay) — only `forceRefund` will refund it, and only safely *after* step 1 confirmed nothing settled (it refunds with a fresh `created_at_time`). The canister sends the ICVC back to the user and removes the journal entry.
 3. **If a matching ICP transfer DOES exist** (rare — means the ledger committed but we never wrote the success record): the user already got their ICP. Admin should `forceCloseInFlight(<id>)` to clean up the journal without double-paying. Update the redemption stats off-chain if accurate accounting matters.
 
 ---
@@ -155,7 +155,7 @@ This is the narrowest gap: a trap landed inside the `icrc2_transfer_from` callba
    ```
    The exact start index depends on how busy the ledger is; iterate or use archived ranges as needed.
 3. **If a matching transfer is found:** the pull executed. The user is owed a refund. **Currently there is no API to transition `#Started → #IcvcPulled` directly.** Admin workaround:
-   - Send the refund manually:
+   - Send the refund manually. **Set `created_at_time` to the entry's dedup key** (`getDedupKey(<ID>)` from step 1), not `null`: this makes the manual refund share an ICRC-1 dedup tuple with any other refund for this id, so re-running the step (or a later canister-issued refund) returns `Duplicate` instead of **double-paying**. A `null` timestamp has no dedup protection and a re-run would refund twice.
      ```bash
      echo y | icp canister call -e ic icvc_ledger icrc1_transfer '(record {
        from_subaccount = null;
@@ -163,7 +163,7 @@ This is the narrowest gap: a trap landed inside the `icrc2_transfer_from` callba
        amount = <AMOUNT_MINUS_FEE> : nat;
        fee = opt 10_000 : nat;
        memo = opt blob "redemption-<ID>";
-       created_at_time = null;
+       created_at_time = opt (<DEDUP_KEY_FROM_STEP_1> : nat64);
      })'
      ```
    - Then `forceCloseInFlight(<id>)` to clean up the journal.
@@ -191,7 +191,7 @@ The canister runs out of cycles and stops processing. Redemptions hang and `getS
 
 The refund's `created_at_time` is pinned to the journal entry's `icvc_dedup_created_at` (set when the redeem started) so that retries are caught by the ICRC-1 ledger's dedup window. That window is ~24h. A retry submitted more than 24h after the original redeem returns `Err(TooOld)`.
 
-This is most likely to hit `#IcvcPulled` orphans (upgrade- or trap-orphaned entries the user has no visibility into) where admin notices days later. `#RefundPending` entries can also hit it if the user takes >24h to click "Get refund" once the recovery UI lands.
+This hits **`#RefundPending`** entries that aren't retried within ~24h (e.g. the user takes >24h to click "Get refund" once the recovery UI lands). Note `#IcvcPulled`/`#IcpSendPending` orphans never reach this path — `retryRefund` refuses them outright (unknown ICP outcome), so they go straight to the reconcile-then-`forceRefund` flow (Scenario C) regardless of age; the recovery below is the same.
 
 **Recovery:**
 1. **Check whether an earlier refund attempt actually committed.** Look up the entry's dedup key:
@@ -219,7 +219,7 @@ This is most likely to hit `#IcvcPulled` orphans (upgrade- or trap-orphaned entr
 | `getMyInFlight()` | query | Caller's own in-flight entries (user-facing) |
 | `getDedupKey(id)` | query (admin) | `created_at_time` used on the original `transfer_from`, for ledger lookup |
 | `getStats()` | update | Pool balance, redemption counts, paused flag |
-| `retryRefund(id)` | update | Retry refund for `#IcvcPulled` or `#RefundPending` entries (caller must be the user or admin) |
+| `retryRefund(id)` | update | Retry refund for **`#RefundPending` only** (caller must be the user or admin). **Refuses** `#IcvcPulled`/`#IcpSendPending` (unknown ICP outcome — reconcile, then `forceRefund`). |
 | `forceCloseInFlight(id)` | update (admin) | Drop an entry without refunding — use after manual reconciliation |
 | `forceRefund(id)` | update (admin) | Refund a stuck entry with a **fresh** `created_at_time` (bypasses the `TooOld` dedup window and the `retryRefund` `#IcpSendPending` refusal). Only after reconciling that no payout/refund settled — no dedup protection |
 | `sweepBurn()` | update (admin) | Flush redeemed-but-unburned ICVC (`icvc_pending_burn` > 0). Retries each pending burn with its original dedup tuple, so a lost-response burn returns `Duplicate` rather than double-burning. Allowed while paused. Returns the ICVC burned this call |
