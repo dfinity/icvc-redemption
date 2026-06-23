@@ -14,13 +14,11 @@ module {
     };
 
     public type Stats = {
-        /// Live ICP balance of the canister, read from the ICP ledger at the
-        /// time of the call. The frontend computes the progress denominator
-        /// as `icp_remaining + total_icp_distributed`: that's the running
-        /// total of ICP that has ever flowed into the canister via DAO
-        /// transfers, which moves up when the DAO funds and stays put as
-        /// redemptions happen.
-        icp_remaining : Nat;
+        // Note: the live ICP pool balance is NOT a field here. `getStats` is a
+        // pure query; clients read the pool balance directly via
+        // `icrc1_balance_of` on the ICP ledger (the on-chain truth). The
+        // frontend computes the progress denominator as
+        // `icrc1_balance_of(canister) + total_icp_distributed`.
         total_icvc_redeemed : Nat;
         total_icp_distributed : Nat;
         total_redemptions : Nat;

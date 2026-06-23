@@ -259,14 +259,18 @@ async function refreshStats() {
       if (CONFIG.HOST.includes("127.0.0.1")) { await a.fetchRootKey(); }
     }
     const r = Actor.createActor(redemptionIdl, { agent: a, canisterId: CONFIG.REDEMPTION_ID });
-    const [s, history, fv] = await Promise.all([
+    const icp = Actor.createActor(ledgerIdl, { agent: a, canisterId: CONFIG.ICP_LEDGER_ID });
+    const [s, history, fv, poolBalance] = await Promise.all([
       r.getStats(),
       r.getRedemptionHistory(0n, 10n),
       r.getFairValueInputs(),
+      // Live ICP pool balance, read straight from the ICP ledger (on-chain
+      // truth). getStats no longer carries it — it's a pure query now.
+      icp.icrc1_balance_of({ owner: Principal.fromText(CONFIG.REDEMPTION_ID), subaccount: [] }),
     ]);
 
     const distributed = BigInt(s.total_icp_distributed);
-    const remaining = BigInt(s.icp_remaining);
+    const remaining = BigInt(poolBalance);
     exchangeRate = BigInt(s.exchange_rate_e8s);
 
     // Replace spinner with value and animate

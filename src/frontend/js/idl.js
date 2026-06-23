@@ -41,7 +41,6 @@ export function buildIdlFactories(IDL) {
         timestamp: IDL.Int, icvc_tx_id: IDL.Nat, icp_tx_id: IDL.Nat,
     });
     const Stats = IDL.Record({
-        icp_remaining: IDL.Nat,
         total_icvc_redeemed: IDL.Nat, total_icp_distributed: IDL.Nat,
         total_redemptions: IDL.Nat, exchange_rate_e8s: IDL.Nat, paused: IDL.Bool,
         total_icvc_burned: IDL.Nat, icvc_pending_burn: IDL.Nat,
@@ -62,7 +61,7 @@ export function buildIdlFactories(IDL) {
 
     const redemptionIdl = ({ IDL: _IDL }) => IDL.Service({
         redeem: IDL.Func([IDL.Nat], [IDL.Variant({ ok: RedemptionRecord, err: RedemptionError })], []),
-        getStats: IDL.Func([], [Stats], []),
+        getStats: IDL.Func([], [Stats], ["query"]),
         getRedemptionHistory: IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(RedemptionRecord)], ["query"]),
         getUserRedemptions: IDL.Func([IDL.Principal, IDL.Nat, IDL.Nat], [IDL.Vec(RedemptionRecord)], ["query"]),
         getExchangeRate: IDL.Func([], [IDL.Nat], ["query"]),
