@@ -79,6 +79,17 @@ def _get_stats(deployment) -> dict:
     return decode(raw)[0]["value"]
 
 
+def _icp_pool_balance(deployment) -> int:
+    """Live ICP balance of the redemption canister, read straight from the ICP
+    ledger. getStats no longer carries icp_remaining (it's a pure query now)."""
+    deployment.pic.set_anonymous_sender()
+    arg = encode([{
+        "type": _account_type(),
+        "value": {"owner": deployment.redemption.bytes, "subaccount": []},
+    }])
+    return decode(deployment.pic.query_call(deployment.icp_ledger, "icrc1_balance_of", arg))[0]["value"]
+
+
 def test_sequential_redeems_accounting(deployment):
     d = deployment
     redeem_each = 100 * 100_000_000  # 100 ICVC per redeem
@@ -96,7 +107,7 @@ def test_sequential_redeems_accounting(deployment):
     )
 
     initial = _get_stats(d)
-    initial_icp_remaining = initial[f"_{H_ICP_REMAINING}"]
+    initial_icp_remaining = _icp_pool_balance(d)
     initial_total_icvc = initial[f"_{H_TOTAL_ICVC_REDEEMED}"]
     initial_total_icp = initial[f"_{H_TOTAL_ICP_DISTRIBUTED}"]
     initial_count = initial[f"_{H_TOTAL_REDEMPTIONS}"]
@@ -126,8 +137,10 @@ def test_sequential_redeems_accounting(deployment):
             f"total_redemptions wrong after redeem #{i}"
         )
         # Pool must drop by exactly payout + fee per redeem (fee paid by canister).
+        # Read the live pool balance directly from the ICP ledger.
         expected_remaining = initial_icp_remaining - i * (expected_payout + ICP_FEE_E8S)
-        assert stats[f"_{H_ICP_REMAINING}"] == expected_remaining, (
-            f"icp_remaining wrong after redeem #{i}: "
-            f"expected {expected_remaining}, got {stats[f'_{H_ICP_REMAINING}']}"
+        actual_remaining = _icp_pool_balance(d)
+        assert actual_remaining == expected_remaining, (
+            f"pool balance wrong after redeem #{i}: "
+            f"expected {expected_remaining}, got {actual_remaining}"
         )

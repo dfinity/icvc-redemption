@@ -102,6 +102,17 @@ def _get_stats(deployment) -> dict:
     return decode(raw)[0]["value"]
 
 
+def _icp_pool_balance(deployment) -> int:
+    """Live ICP balance of the redemption canister, read straight from the ICP
+    ledger. getStats no longer carries icp_remaining (it's a pure query now)."""
+    deployment.pic.set_anonymous_sender()
+    arg = encode([{
+        "type": _account_type(),
+        "value": {"owner": deployment.redemption.bytes, "subaccount": []},
+    }])
+    return decode(deployment.pic.query_call(deployment.icp_ledger, "icrc1_balance_of", arg))[0]["value"]
+
+
 def _dao_mint_to_canister(deployment, amount: int) -> None:
     """Simulate the DAO transferring `amount` ICP into the redemption canister.
     Sender is the minting account owner; the from_subaccount is the minting
@@ -129,16 +140,16 @@ def test_dao_tranches_grow_pool(deployment):
     tranche_2 = 5_000 * 100_000_000    # 5,000 ICP e8s
 
     initial = _get_stats(d)
-    initial_remaining = initial[f"_{H_ICP_REMAINING}"]
+    initial_remaining = _icp_pool_balance(d)
     initial_distributed = initial[f"_{H_TOTAL_ICP_DISTRIBUTED}"]
     initial_denominator = initial_remaining + initial_distributed
 
     # --- Tranche 1: DAO mints 10k ICP into the canister --------------------
     _dao_mint_to_canister(d, tranche_1)
-    after_t1 = _get_stats(d)
-    assert after_t1[f"_{H_ICP_REMAINING}"] == initial_remaining + tranche_1, (
+    remaining_after_t1 = _icp_pool_balance(d)
+    assert remaining_after_t1 == initial_remaining + tranche_1, (
         f"tranche 1 should grow pool by {tranche_1}, "
-        f"saw {after_t1[f'_{H_ICP_REMAINING}']} (was {initial_remaining})"
+        f"saw {remaining_after_t1} (was {initial_remaining})"
     )
 
     # --- A holder redeems between tranches ----------------------------------
@@ -155,22 +166,24 @@ def test_dao_tranches_grow_pool(deployment):
     assert f"_{HASH_OK}" in result, f"redeem failed: {result!r}"
 
     after_redeem = _get_stats(d)
+    remaining_after_redeem = _icp_pool_balance(d)
     expected_after_redeem = initial_remaining + tranche_1 - expected_payout - ICP_FEE_E8S
-    assert after_redeem[f"_{H_ICP_REMAINING}"] == expected_after_redeem, (
-        f"icp_remaining wrong after between-tranches redeem"
+    assert remaining_after_redeem == expected_after_redeem, (
+        f"pool balance wrong after between-tranches redeem"
     )
     assert after_redeem[f"_{H_TOTAL_ICP_DISTRIBUTED}"] == initial_distributed + expected_payout
 
     # --- Tranche 2: DAO mints another 5k ICP --------------------------------
     _dao_mint_to_canister(d, tranche_2)
     after_t2 = _get_stats(d)
+    remaining_after_t2 = _icp_pool_balance(d)
     expected_after_t2 = initial_remaining + tranche_1 + tranche_2 - expected_payout - ICP_FEE_E8S
-    assert after_t2[f"_{H_ICP_REMAINING}"] == expected_after_t2, (
+    assert remaining_after_t2 == expected_after_t2, (
         f"tranche 2 didn't grow pool correctly"
     )
 
     # --- Monotonicity: the denominator (remaining + distributed) only grows ---
-    final_denominator = after_t2[f"_{H_ICP_REMAINING}"] + after_t2[f"_{H_TOTAL_ICP_DISTRIBUTED}"]
+    final_denominator = remaining_after_t2 + after_t2[f"_{H_TOTAL_ICP_DISTRIBUTED}"]
     # After two tranches and one redeem, the denominator grew by exactly
     # (tranche_1 + tranche_2 - fee). The fee is paid by the canister, so it's
     # the only thing that reduces remaining+distributed.

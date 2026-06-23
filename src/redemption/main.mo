@@ -942,19 +942,21 @@ persistent actor class RedemptionCanister(init : Types.InitArgs) = self {
         #ok(lookupDedupKey(id));
     };
 
-    /// Get pool statistics
-    public shared func getStats() : async Types.Stats {
-        let icp_remaining = await icp_ledger.icrc1_balance_of(selfAccount());
+    /// Pool / wind-down statistics. A pure `query` (no inter-canister call): the
+    /// live ICP pool balance is intentionally NOT returned here — clients read it
+    /// directly via `icrc1_balance_of` on the ICP ledger (the frontend does, and
+    /// it's the on-chain truth anyway). Keeping this a query means an anonymous
+    /// caller can't use it to burn the canister's cycles or load consensus (it
+    /// was previously a `shared` update that awaited the ICP ledger).
+    public query func getStats() : async Types.Stats {
         // Derive pending-burn from the authoritative source (the sum of the
         // pendingBurns queue) rather than `totalIcvcRedeemed - totalIcvcBurned`.
         // The subtraction is a Nat op that TRAPS on underflow; deriving from the
         // queue is both the true value (redeemed-but-not-yet-burned) and can
-        // never underflow, so this anonymous-readable endpoint can't be bricked
-        // by any transient accounting skew.
+        // never underflow.
         var icvc_pending_burn : Nat = 0;
         for ((_, amount, _) in pendingBurns.vals()) { icvc_pending_burn += amount };
         {
-            icp_remaining = icp_remaining;
             total_icvc_redeemed = totalIcvcRedeemed;
             total_icp_distributed = totalIcpDistributed;
             total_redemptions = redemptions.size();

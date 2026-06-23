@@ -172,7 +172,7 @@ The DAO does not deposit the full eventual ICP commitment into the redemption ca
 **Two on-chain numbers tell the holder-facing story:**
 
 - **ICP distributed** (`Stats.total_icp_distributed`): running total of payouts to holders. Grows when a holder redeems.
-- **ICP remaining** (`Stats.icp_remaining`): live `icrc1_balance_of` query against the ICP ledger. Grows when the DAO transfers a new tranche in; shrinks when a holder redeems.
+- **ICP remaining**: read live by clients via `icrc1_balance_of` on the ICP ledger (the redemption canister's balance). Grows when the DAO transfers a new tranche in; shrinks when a holder redeems. (`getStats` is a pure query and no longer carries this — clients read the on-chain truth directly.)
 
 The frontend's progress bar reads **"X distributed of (X + remaining) ICP in pool"**. The denominator is computed live; no admin action is needed between a DAO transfer and the UI updating. After a 10k DAO transfer with 5k of redemptions, that's "5,000 of 10,000". When the DAO sends another 10k, the bar becomes "5,000 of 20,000". As more holders redeem, the bar fills up. Honest, monotonic, no separate counter to maintain.
 
@@ -214,8 +214,8 @@ The frontend's progress bar reads **"X distributed of (X + remaining) ICP in poo
 
 **Who does what:**
 1. **DAO governance** votes a proposal to transfer `N` ICP from the DAO treasury to the redemption canister principal.
-2. The vote, if it passes, executes an ICRC-1 transfer. No canister method is needed; the ICP just shows up and `Stats.icp_remaining` grows on the next `getStats` call.
-3. **Frontends and audit tools** see the new pool size immediately: the denominator is computed from `icp_remaining + total_icp_distributed`. No admin step in between.
+2. The vote, if it passes, executes an ICRC-1 transfer. No canister method is needed; the ICP just shows up and the canister's `icrc1_balance_of` grows immediately (no canister method involved).
+3. **Frontends and audit tools** see the new pool size immediately: the denominator is computed from `icrc1_balance_of(canister) + total_icp_distributed`. No admin step in between.
 4. Token holders **redeem** against the larger pool. If a holder tries to redeem more than `icp_remaining`, they get `#InsufficientIcpPool` and can retry after the next tranche.
 5. **Wait, watch, and listen.** If complaints surface or a bug is found, `pause()` stops further redemptions. Resolve, `unpause()`, then proceed.
 6. **Repeat** until the DAO has finished funding.
